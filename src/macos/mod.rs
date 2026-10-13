@@ -314,7 +314,9 @@ impl Desktop for Mac {
     }
 
     fn window(&self, action: Window) -> Result<(), Error> {
-        window::resize(action)
+        match action {
+            Window::Resize(change) => window::resize(change),
+        }
     }
 
     fn bluetooth(&self, action: &action::Bluetooth) -> Result<(), Error> {
@@ -333,10 +335,10 @@ impl Desktop for Mac {
         .press()
     }
 
-    fn brightness(&self, action: action::Brightness) -> Result<(), Error> {
+    fn display(&self, action: action::Display) -> Result<(), Error> {
         match action {
-            action::Brightness::Up => SystemKey::BrightnessUp,
-            action::Brightness::Down => SystemKey::BrightnessDown,
+            action::Display::BrightnessUp => SystemKey::BrightnessUp,
+            action::Display::BrightnessDown => SystemKey::BrightnessDown,
         }
         .press()
     }

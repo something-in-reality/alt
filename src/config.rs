@@ -20,7 +20,7 @@ use crate::{
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub input: Input,
-    pub brightness: BrightnessSync,
+    pub display: Display,
     /// Bindings in every application.
     #[serde_as(as = "MapPreventDuplicates<_, _>")]
     pub bindsym: HashMap<Combo, Command>,
@@ -43,9 +43,9 @@ pub struct Pointer {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct BrightnessSync {
+pub struct Display {
     /// External displays follow the built-in display's brightness.
-    pub sync: bool,
+    pub sync_brightness: bool,
 }
 
 #[serde_as]
@@ -93,7 +93,7 @@ impl FromStr for Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::action::{Action, Keyboard, Px, Window};
+    use crate::action::{Action, Keyboard, Size, Window};
 
     const EXAMPLE: &str = include_str!("../config.toml");
 
@@ -108,14 +108,14 @@ mod tests {
     fn example_parses() {
         let config: Config = EXAMPLE.parse().unwrap();
         assert_eq!(config.input.pointer.natural_scroll, Some(false));
-        assert!(config.brightness.sync);
+        assert!(config.display.sync_brightness);
     }
 
     #[test]
     fn front_application_bindings_win() {
         let config: Config = EXAMPLE.parse().unwrap();
-        let grow = vec![Action::Window(Window::Width(Px(100)))];
-        let shrink = vec![Action::Window(Window::Width(Px(-100)))];
+        let width = |width| vec![Action::Window(Window::Resize(Size { width, height: 0 }))];
+        let (grow, shrink) = (width(100), width(-100));
         assert_eq!(command(&config, None, "super+home"), Some(grow.clone()));
         assert_eq!(
             command(&config, Some("com.mitchellh.ghostty"), "super+home"),

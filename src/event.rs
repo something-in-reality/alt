@@ -115,7 +115,7 @@ impl Config {
                 _ => Decision::PASS,
             },
             Event::Scroll { continuous: true } => Decision::PASS,
-            Event::BrightnessKey if self.brightness.sync => Decision {
+            Event::BrightnessKey if self.display.sync_brightness => Decision {
                 verdict: Verdict::Pass,
                 effect: Some(Effect::SyncBrightness),
             },
@@ -174,8 +174,8 @@ mod tests {
             (GHOSTTY, "f6", r#""media.mute""#),
             (GHOSTTY, "f7", r#""media.volume_down""#),
             (GHOSTTY, "f8", r#""media.volume_up""#),
-            (FIREFOX, "f9", r#""brightness.down""#),
-            (FIREFOX, "f10", r#""brightness.up""#),
+            (FIREFOX, "f9", r#""display.brightness_down""#),
+            (FIREFOX, "f10", r#""display.brightness_up""#),
             (GHOSTTY, "ctrl+t", r#"{ keyboard.type = "✓" }"#),
             (GHOSTTY, "home", r#"{ app.focus = "org.nixos.firefox" }"#),
             (FIREFOX, "end", r#"{ app.focus = "com.mitchellh.ghostty" }"#),
@@ -184,10 +184,14 @@ mod tests {
                 "alt+b",
                 r#"{ bluetooth.toggle = "f8-8f-07-40-54-34" }"#,
             ),
-            (GHOSTTY, "super+home", r#"{ window.width = "+100px" }"#),
-            (GHOSTTY, "super+end", r#"{ window.width = "-100px" }"#),
-            (FIREFOX, "super+home", r#"{ window.width = "-100px" }"#),
-            (FIREFOX, "super+end", r#"{ window.width = "+100px" }"#),
+            (GHOSTTY, "super+home", "{ window.resize = { width = 100 } }"),
+            (GHOSTTY, "super+end", "{ window.resize = { width = -100 } }"),
+            (
+                FIREFOX,
+                "super+home",
+                "{ window.resize = { width = -100 } }",
+            ),
+            (FIREFOX, "super+end", "{ window.resize = { width = 100 } }"),
             (
                 FIREFOX,
                 "page_up",

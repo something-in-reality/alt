@@ -6,7 +6,7 @@ use std::{convert::Infallible, error::Error, io, sync::Arc};
 use arc_swap::ArcSwap;
 
 use crate::{
-    action::{App, Bluetooth, Brightness, Keyboard, Media, Window},
+    action::{App, Bluetooth, Display, Keyboard, Media, Window},
     config::Config,
     event::{Context, Effect, Event, System, Verdict},
 };
@@ -34,7 +34,7 @@ pub trait Desktop {
     fn window(&self, action: Window) -> Result<(), Self::Error>;
     fn bluetooth(&self, action: &Bluetooth) -> Result<(), Self::Error>;
     fn media(&self, action: Media) -> Result<(), Self::Error>;
-    fn brightness(&self, action: Brightness) -> Result<(), Self::Error>;
+    fn display(&self, action: Display) -> Result<(), Self::Error>;
 }
 
 /// A sink for effects; it applies them asynchronously, in order, and logs failures.

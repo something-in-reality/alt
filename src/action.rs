@@ -1,15 +1,14 @@
-//! Actions, namespaced by what they act on: `keyboard.press`, `window.width`, `media.mute`.
+//! Actions, namespaced by what they act on: `keyboard.press`, `window.resize`, `media.mute`.
 //!
 //! An action is written `"namespace.verb"` when the verb takes nothing, and
 //! `{ namespace.verb = argument }` when it does.
 
-use std::{fmt, iter, process, str::FromStr, sync::Arc, thread};
+use std::{fmt, iter, process, sync::Arc, thread};
 
 use serde::{
     Deserialize, Deserializer,
     de::{self, IntoDeserializer},
 };
-use serde_with::DeserializeFromStr;
 
 use crate::{combo::Combo, platform::Desktop};
 
@@ -23,7 +22,7 @@ pub enum Action {
     Window(Window),
     Bluetooth(Bluetooth),
     Media(Media),
-    Brightness(Brightness),
+    Display(Display),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -40,12 +39,19 @@ pub enum App {
     Focus(AppId),
 }
 
-/// Resizes the focused window; in split view this moves the divider.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Window {
-    Width(Px),
-    Height(Px),
+    /// Changes the focused window's size; in split view this moves the divider.
+    Resize(Size),
+}
+
+/// A signed change in width and height, in points; an omitted side stays.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Size {
+    pub width: i32,
+    pub height: i32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -67,12 +73,12 @@ pub enum Media {
     Previous,
 }
 
-/// Steps the built-in display's brightness; external displays follow it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Brightness {
-    Up,
-    Down,
+pub enum Display {
+    /// Steps the built-in display's brightness; external displays follow when synced.
+    BrightnessUp,
+    BrightnessDown,
 }
 
 /// An application: its bundle identifier on macOS, its `app_id` under Wayland.
@@ -84,14 +90,6 @@ pub struct AppId(String);
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(transparent)]
 pub struct Device(String);
-
-/// A signed length in pixels, written `+100px` or `-100px`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, DeserializeFromStr)]
-pub struct Px(pub i32);
-
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-#[error("invalid length `{0}`; expected signed pixels such as +100px")]
-pub struct ParsePxError(String);
 
 impl Action {
     /// Performs the action: `exec` here, every other namespace on `desktop`.
@@ -109,7 +107,7 @@ impl Action {
             Self::Window(action) => desktop.window(*action),
             Self::Bluetooth(action) => desktop.bluetooth(action),
             Self::Media(action) => desktop.media(*action),
-            Self::Brightness(action) => desktop.brightness(*action),
+            Self::Display(action) => desktop.display(*action),
         }
     }
 
@@ -117,26 +115,8 @@ impl Action {
     pub fn repeats(&self) -> bool {
         matches!(
             self,
-            Self::Keyboard(_) | Self::Window(_) | Self::Media(_) | Self::Brightness(_)
+            Self::Keyboard(_) | Self::Window(_) | Self::Media(_) | Self::Display(_)
         )
-    }
-}
-
-impl FromStr for Px {
-    type Err = ParsePxError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.strip_suffix("px")
-            .filter(|n| n.starts_with(['+', '-']))
-            .and_then(|n| n.parse().ok())
-            .map(Self)
-            .ok_or_else(|| ParsePxError(s.to_owned()))
-    }
-}
-
-impl fmt::Display for Px {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:+}px", self.0)
     }
 }
 
@@ -286,13 +266,16 @@ mod tests {
             [Action::Media(Media::Mute)]
         );
         assert_eq!(
-            command(r#"{ window.width = "+100px" }"#).unwrap(),
-            [Action::Window(Window::Width(Px(100)))]
+            command("{ window.resize = { width = -100 } }").unwrap(),
+            [Action::Window(Window::Resize(Size {
+                width: -100,
+                height: 0
+            }))]
         );
         assert_eq!(
-            command(r#"["brightness.up", { keyboard.type = "✓" }]"#).unwrap(),
+            command(r#"["display.brightness_up", { keyboard.type = "✓" }]"#).unwrap(),
             [
-                Action::Brightness(Brightness::Up),
+                Action::Display(Display::BrightnessUp),
                 Action::Keyboard(Keyboard::Type("✓".to_owned()))
             ]
         );
@@ -302,13 +285,6 @@ mod tests {
     fn errors_name_the_problem() {
         let error = command(r#""media.louder""#).unwrap_err().to_string();
         assert!(error.contains("louder"), "{error}");
-        assert!(command(r#"{ window.width = "100px" }"#).is_err());
-    }
-
-    #[test]
-    fn pixels_round_trip() {
-        for s in ["+100px", "-40px"] {
-            assert_eq!(s.parse::<Px>().unwrap().to_string(), s);
-        }
+        assert!(command("{ window.resize = { depth = 100 } }").is_err());
     }
 }

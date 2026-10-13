@@ -5,8 +5,8 @@
 [input.pointer]
 natural_scroll = false
 
-[brightness]
-sync = true
+[display]
+sync_brightness = true
 
 [bindsym]
 f1 = { keyboard.press = "dictation" }
@@ -14,19 +14,19 @@ f4 = { exec = "open -a 'Mission Control'" }
 f6 = "media.mute"
 f7 = "media.volume_down"
 f8 = "media.volume_up"
-f9 = "brightness.down"
-f10 = "brightness.up"
+f9 = "display.brightness_down"
+f10 = "display.brightness_up"
 "ctrl+t" = { keyboard.type = "✓" }
 home = { app.focus = "org.nixos.firefox" }
 end = { app.focus = "com.mitchellh.ghostty" }
 "alt+b" = { bluetooth.toggle = "f8-8f-07-40-54-34" }
-"super+home" = { window.width = "+100px" }
-"super+end" = { window.width = "-100px" }
+"super+home" = { window.resize = { width = 100 } }
+"super+end" = { window.resize = { width = -100 } }
 
 [app_id."org.nixos.firefox".bindsym]
 page_up = { keyboard.press = "ctrl+shift+tab" }
 page_down = { keyboard.press = "ctrl+tab" }
 backquote = { keyboard.press = "ctrl+z" }
 "ctrl+backquote" = { keyboard.press = "ctrl+z" }
-"super+home" = { window.width = "-100px" }
-"super+end" = { window.width = "+100px" }
+"super+home" = { window.resize = { width = -100 } }
+"super+end" = { window.resize = { width = 100 } }
