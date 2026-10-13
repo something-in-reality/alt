@@ -28,7 +28,10 @@ use std::{
 
 use dispatch2::{DispatchQueue, DispatchQueueAttr, DispatchRetained};
 use objc2::rc::autoreleasepool;
-use objc2_app_kit::{NSEvent, NSEventType};
+use objc2_app_kit::{
+    NSEvent, NSEventType, NSWorkspaceDidActivateApplicationNotification,
+    NSWorkspaceWillLaunchApplicationNotification,
+};
 use objc2_application_services::{
     AXIsProcessTrusted, AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt,
 };
@@ -119,10 +122,20 @@ impl Input for Session {
         let apps = Rc::new(Apps {
             front: RefCell::new(app::front()),
         });
-        let _observer = app::on_activate({
+        let handle = Rc::new(handle);
+        let _activate = app::observe(unsafe { NSWorkspaceDidActivateApplicationNotification }, {
             let apps = apps.clone();
             move |front| *apps.front.borrow_mut() = Some(front)
         });
+        let launch = {
+            let (apps, handle) = (apps.clone(), handle.clone());
+            move |app| _ = handle(Event::Launch(app), &apps)
+        };
+        app::all().for_each(&launch);
+        let _launch = app::observe(
+            unsafe { NSWorkspaceWillLaunchApplicationNotification },
+            launch,
+        );
         let _tap = Tap::new(
             &[
                 CGEventType::KeyDown,
@@ -310,6 +323,7 @@ impl Desktop for Mac {
     fn app(&self, action: &App) -> Result<(), Error> {
         match action {
             App::Focus(app) => app::focus(app),
+            App::Kill(app) => app::kill(app),
         }
     }
 

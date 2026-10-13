@@ -21,6 +21,8 @@ pub enum Event {
     },
     /// A brightness key, after the system has applied it.
     BrightnessKey,
+    /// An application is launching, or was running when input began.
+    Launch(AppId),
 }
 
 impl fmt::Display for Event {
@@ -37,6 +39,7 @@ impl fmt::Display for Event {
             Self::Scroll { continuous: true } => f.write_str("scroll (continuous)"),
             Self::Scroll { continuous: false } => f.write_str("scroll (discrete)"),
             Self::BrightnessKey => f.write_str("brightness key"),
+            Self::Launch(app) => write!(f, "launch {app}"),
         }
     }
 }
@@ -120,6 +123,14 @@ impl Config {
                 effect: Some(Effect::SyncBrightness),
             },
             Event::BrightnessKey => Decision::PASS,
+            Event::Launch(app) => Decision {
+                verdict: Verdict::Pass,
+                effect: self
+                    .app_id
+                    .get(&app)
+                    .and_then(|app| app.on_launch.clone())
+                    .map(Effect::Run),
+            },
         }
     }
 }
@@ -249,6 +260,19 @@ mod tests {
         assert_eq!(scroll(false, true), Verdict::Reverse);
         assert_eq!(scroll(true, true), Verdict::Pass);
         assert_eq!(scroll(false, false), Verdict::Pass);
+    }
+
+    #[test]
+    fn launches_run_their_application_command() {
+        let launch = |app| config().decide(Event::Launch(AppId::from(app)), &NATURAL, &Front(None));
+        let Some(Effect::Run(command)) = launch("com.apple.Music").effect else {
+            panic!("launching Music runs nothing");
+        };
+        assert_eq!(
+            command.as_ref(),
+            actions(r#"{ app.kill = "com.apple.Music" }"#)
+        );
+        assert_eq!(launch(FIREFOX), Decision::PASS);
     }
 
     #[test]

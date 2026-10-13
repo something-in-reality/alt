@@ -54,6 +54,8 @@ pub struct Display {
 pub struct App {
     #[serde_as(as = "MapPreventDuplicates<_, _>")]
     pub bindsym: HashMap<Combo, Command>,
+    /// Runs when the application launches.
+    pub on_launch: Option<Command>,
 }
 
 #[derive(Debug, thiserror::Error)]

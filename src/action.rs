@@ -37,6 +37,8 @@ pub enum Keyboard {
 pub enum App {
     /// Brings a running application to the front.
     Focus(AppId),
+    /// Force-quits a running application.
+    Kill(AppId),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
