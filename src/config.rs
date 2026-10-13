@@ -1,5 +1,6 @@
 //! The configuration file, in sway's section names.
 
+pub mod edit;
 pub mod watch;
 
 use std::{

@@ -151,7 +151,7 @@ fn trust() -> Result<(), Error> {
     loop {
         thread::sleep(Duration::from_secs(3));
         if process::Command::new(&exe)
-            .arg("trusted")
+            .env(super::TRUST_CHECK, "1")
             .status()?
             .success()
         {

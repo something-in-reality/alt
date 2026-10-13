@@ -14,7 +14,7 @@ arc-swap = "1.9"
 bitflags = "2.9"
 blake3 = "1.8"
 clap = { version = "4.6", features = ["derive"] }
-clap_complete = "4.6"
+edit = { version = "0.1", features = ["quoted-env"] }
 etcetera = "0.10"
 inquire = "0.9"
 keycode = "1"
@@ -25,6 +25,10 @@ thiserror = "2"
 toml = "1.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[build-dependencies]
+clap = { version = "4.6", features = ["derive"] }
+clap_complete = "4.6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"

@@ -1,55 +1,34 @@
+mod cli;
+
 use std::{
+    env,
     io::{self, IsTerminal},
-    path::PathBuf,
     process::ExitCode,
     sync::Arc,
 };
 
 use accessibility::{
-    config::{Config, watch::watch},
+    config::{Config, edit::edit, watch::watch},
     macos::{self, Dispatcher, Session, status::Status},
     platform,
 };
 use anyhow::Context as _;
 use arc_swap::ArcSwap;
-use clap::{CommandFactory, Parser, Subcommand};
-use clap_complete::Shell;
+use clap::Parser;
 use etcetera::BaseStrategy;
 use tracing_oslog::OsLogger;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
-/// Keyboard, pointer, window and display behaviour outside the terminal.
-///
-/// Without a command, applies the configuration in the foreground and reloads it when it changes;
-/// launchd runs it at login.
-#[derive(Parser)]
-#[command(version)]
-struct Cli {
-    /// Defaults to $XDG_CONFIG_HOME/accessibility/config.toml.
-    #[arg(long, global = true)]
-    config: Option<PathBuf>,
-    #[command(subcommand)]
-    command: Option<Commands>,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    /// Checks the configuration and reports the running app and its signature.
-    Status,
-    /// Streams the running app's log: each decided event, action and error.
-    Log,
-    /// Shows the machine's one-time steps, the Accessibility permission and the Glove80's
-    /// firmware, and runs those selected.
-    Setup,
-    /// Prints shell completions.
-    #[command(hide = true)]
-    Completions { shell: Shell },
-    /// Exits successfully when this process may observe and post input.
-    #[command(hide = true)]
-    Trusted,
-}
+use self::cli::{Cli, Commands};
 
 fn main() -> anyhow::Result<ExitCode> {
+    if env::var_os(macos::TRUST_CHECK).is_some() {
+        return Ok(if macos::trusted() {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        });
+    }
     // The unified log, as the app's subsystem; a terminal also reads it on stderr.
     tracing_subscriber::registry()
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
@@ -69,33 +48,24 @@ fn main() -> anyhow::Result<ExitCode> {
     };
     match cli.command {
         None => {
-            let config = Arc::new(ArcSwap::from_pointee(Config::load(&path)?));
-            let _watcher = watch(path, config.clone()).context("watching the configuration")?;
-            platform::run(Session, Dispatcher::new()?, config)?;
-        }
-        Some(Commands::Status) => {
             match Config::load(&path) {
-                Ok(_) => println!("config:    {}", path.display()),
+                Ok(_) => println!("config:     {}", path.display()),
                 Err(error) => println!(
-                    "config:    {}: {:#}",
+                    "config:     {}: {:#}",
                     path.display(),
                     anyhow::Error::from(error)
                 ),
             }
             println!("{}", Status::read());
         }
+        Some(Commands::Run) => {
+            let config = Arc::new(ArcSwap::from_pointee(Config::load(&path)?));
+            let _watcher = watch(path, config.clone()).context("watching the configuration")?;
+            platform::run(Session, Dispatcher::new()?, config)?;
+        }
+        Some(Commands::Edit) => edit(&path)?,
         Some(Commands::Log) => match macos::log()? {},
         Some(Commands::Setup) => macos::setup::setup()?,
-        Some(Commands::Completions { shell }) => {
-            clap_complete::generate(
-                shell,
-                &mut Cli::command(),
-                "accessibility",
-                &mut io::stdout(),
-            );
-        }
-        Some(Commands::Trusted) if !macos::trusted() => return Ok(ExitCode::FAILURE),
-        Some(Commands::Trusted) => {}
     }
     Ok(ExitCode::SUCCESS)
 }

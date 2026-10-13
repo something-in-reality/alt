@@ -6,6 +6,7 @@ use std::{
     process::Command,
 };
 
+use super::setup::Permission;
 use libproc::{
     libproc::proc_pid::pidpath,
     processes::{ProcFilter, pids_by_type},
@@ -16,6 +17,7 @@ pub struct Status {
     pid: Option<u32>,
     bundle: PathBuf,
     signer: Option<String>,
+    permission: Option<Permission>,
 }
 
 impl Status {
@@ -48,6 +50,7 @@ impl Status {
             pid,
             bundle,
             signer,
+            permission: Permission::read(),
         }
     }
 }
@@ -55,13 +58,17 @@ impl Status {
 impl fmt::Display for Status {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.pid {
-            Some(pid) => writeln!(f, "running:   pid {pid}")?,
-            None => writeln!(f, "running:   no")?,
+            Some(pid) => writeln!(f, "running:    pid {pid}")?,
+            None => writeln!(f, "running:    no")?,
         }
-        writeln!(f, "app:       {}", self.bundle.display())?;
+        writeln!(f, "app:        {}", self.bundle.display())?;
         match &self.signer {
-            Some(signer) => write!(f, "signed by: {signer}"),
-            None => write!(f, "signed by: no certificate"),
+            Some(signer) => writeln!(f, "signed by:  {signer}")?,
+            None => writeln!(f, "signed by:  no certificate")?,
+        }
+        match self.permission {
+            Some(permission) => write!(f, "permission: {permission}"),
+            None => write!(f, "permission: unknown"),
         }
     }
 }

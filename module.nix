@@ -88,7 +88,10 @@ in
       enable = true;
       waitForNixStore = false;
       config = {
-        ProgramArguments = [ "${bundle}/Contents/MacOS/accessibility" ];
+        ProgramArguments = [
+          "${bundle}/Contents/MacOS/accessibility"
+          "run"
+        ];
         AssociatedBundleIdentifiers = service.package.identifier;
         EnvironmentVariables.PATH = lib.makeBinPath service.path + ":/usr/bin:/bin";
         RunAtLoad = true;

@@ -17,6 +17,7 @@ rustPlatform.buildRustPackage {
       ./Cargo.toml
       ./Cargo.lock
       ./Info.plist
+      ./build.rs
       ./config.toml
       ./signing-identity
       ./src
@@ -24,6 +25,8 @@ rustPlatform.buildRustPackage {
   };
   cargoLock.lockFile = ./Cargo.lock;
   cargoBuildFlags = [ "--workspace" ];
+  # build.rs writes shell completions here.
+  env.COMPLETIONS = "completions";
   cargoTestFlags = [ "--workspace" ];
 
   nativeBuildInputs = [ installShellFiles ];
@@ -34,10 +37,7 @@ rustPlatform.buildRustPackage {
     app=$out/Applications/Accessibility.app/Contents
     install -D $out/bin/accessibility $app/MacOS/accessibility
     substitute Info.plist $app/Info.plist --subst-var version --subst-var-by identifier ${identifier}
-    installShellCompletion --cmd accessibility \
-      --bash <($out/bin/accessibility completions bash) \
-      --fish <($out/bin/accessibility completions fish) \
-      --zsh <($out/bin/accessibility completions zsh)
+    installShellCompletion completions/{accessibility.bash,accessibility.fish,_accessibility}
   '';
 
   # The bundle identifier, which names the app's permissions and log subsystem.
