@@ -12,9 +12,11 @@ members = ["signing-identity"]
 anyhow = "1"
 arc-swap = "1.9"
 bitflags = "2.9"
+blake3 = "1.8"
 clap = { version = "4.6", features = ["derive"] }
 clap_complete = "4.6"
 etcetera = "0.10"
+inquire = "0.9"
 keycode = "1"
 notify-debouncer-full = "0.7"
 serde = { version = "1", features = ["derive", "rc"] }

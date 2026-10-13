@@ -1,7 +1,10 @@
 # home-manager module: the accessibility app as a launchd agent at login, reading
 # $XDG_CONFIG_HOME/accessibility/config.toml. Activation copies the app to ~/Applications and signs
 # it with rcodesign under an identity derived from `seed`: every build meets one designated
-# requirement, so its Accessibility permission survives rebuilds. The app logs to the unified log.
+# requirement, so its Accessibility permission survives rebuilds. With `glove80.enable`, the
+# keyboard's firmware is at $XDG_DATA_HOME/accessibility/glove80.uf2 for `accessibility setup` to
+# flash. The app logs to the unified log. `self` is the accessibility flake.
+self:
 {
   config,
   lib,
@@ -23,6 +26,17 @@ in
       default = pkgs.callPackage ./package.nix { };
       defaultText = lib.literalMD "this flake's package";
       description = "The accessibility package.";
+    };
+
+    glove80 = {
+      enable = lib.mkEnableOption "the Glove80's firmware, which `accessibility setup` flashes";
+
+      package = lib.mkOption {
+        type = lib.types.package;
+        default = self.packages.${pkgs.stdenv.hostPlatform.system}.glove80;
+        defaultText = lib.literalMD "this flake's `glove80` package";
+        description = "The Glove80 firmware, whose output holds glove80.uf2.";
+      };
     };
 
     seed = lib.mkOption {
@@ -63,6 +77,10 @@ in
         run /bin/launchctl kickstart -k gui/$(/usr/bin/id -u)/${agent} || true
       fi
     '';
+
+    xdg.dataFile."accessibility/glove80.uf2" = lib.mkIf service.glove80.enable {
+      source = "${service.glove80.package}/glove80.uf2";
+    };
 
     # The agent runs the app's executable, outside the store, so System Settings names it after
     # the app.

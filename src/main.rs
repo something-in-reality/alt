@@ -38,6 +38,9 @@ enum Commands {
     Status,
     /// Streams the running app's log: each decided event, action and error.
     Log,
+    /// Shows the machine's one-time steps, the Accessibility permission and the Glove80's
+    /// firmware, and runs those selected.
+    Setup,
     /// Prints shell completions.
     #[command(hide = true)]
     Completions { shell: Shell },
@@ -82,6 +85,7 @@ fn main() -> anyhow::Result<ExitCode> {
             println!("{}", Status::read());
         }
         Some(Commands::Log) => match macos::log()? {},
+        Some(Commands::Setup) => macos::setup::setup()?,
         Some(Commands::Completions { shell }) => {
             clap_complete::generate(
                 shell,

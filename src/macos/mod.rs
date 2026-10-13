@@ -7,6 +7,7 @@ mod display;
 mod error;
 mod keymap;
 mod session;
+pub mod setup;
 pub mod status;
 mod synth;
 mod system_key;

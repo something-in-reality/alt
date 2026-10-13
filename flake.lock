@@ -18,7 +18,25 @@
     },
     "root": {
       "inputs": {
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "zmk": "zmk"
+      }
+    },
+    "zmk": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1743221471,
+        "narHash": "sha256-fg6gyVu42YyOxsNFcTOIaM8TdmdOiZVlLGmFufhvfjI=",
+        "owner": "moergo-sc",
+        "repo": "zmk",
+        "rev": "598b03508c308de2139c61216eb1b2fdc447501e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "moergo-sc",
+        "ref": "v25.05",
+        "repo": "zmk",
+        "type": "github"
       }
     }
   },
