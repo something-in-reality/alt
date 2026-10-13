@@ -1,0 +1,33 @@
+# Example configuration; ~/.config/accessibility/config.toml.
+# Keys are W3C KeyboardEvent.code names; modifiers are ctrl, alt, shift and super.
+
+[input.pointer]
+natural_scroll = false
+
+[brightness]
+sync = true
+
+[bindsym]
+F1 = { key = "Dictation" }
+F3 = { workspace = "prev" }
+F4 = { exec = "open -a 'Mission Control'" }
+F5 = { workspace = "next" }
+F6 = { key = "AudioVolumeMute" }
+"ctrl+KeyT" = { type = "✓" }
+Home = { focus = "org.nixos.firefox" }
+End = { focus = "com.mitchellh.ghostty" }
+"alt+KeyB" = { exec = "id=f8-8f-07-40-54-34; [ \"$(blueutil --is-connected $id)\" = 1 ] && blueutil --disconnect $id || blueutil --connect $id" }
+"super+Home" = { resize = { grow = { width = "100px" } } }
+"super+End" = { resize = { shrink = { width = "100px" } } }
+
+[app_id."org.nixos.firefox".bindsym]
+PageUp = { key = "ctrl+shift+Tab" }
+PageDown = { key = "ctrl+Tab" }
+Backquote = { key = "ctrl+KeyZ" }
+"ctrl+Backquote" = { key = "ctrl+KeyZ" }
+"super+Backquote" = [{ key = "super+KeyL" }, { key = "alt+Enter" }]
+"super+Home" = { resize = { shrink = { width = "100px" } } }
+"super+End" = { resize = { grow = { width = "100px" } } }
+
+[for_window]
+"com.apple.Music" = "kill"
