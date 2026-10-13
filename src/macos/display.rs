@@ -25,10 +25,15 @@ impl Brightness {
     pub fn spawn() -> Self {
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
+            let builtin = match Builtin::load() {
+                Ok(builtin) => builtin,
+                Err(error) => return tracing::error!("reading brightness: {error:#}"),
+            };
             while rx.recv().is_ok() {
                 while rx.recv_timeout(SETTLE).is_ok() {}
-                if let Err(error) = sync() {
-                    tracing::warn!(%error, "syncing brightness");
+                match builtin.brightness() {
+                    Ok(level) => follow(level),
+                    Err(error) => tracing::warn!("reading brightness: {error:#}"),
                 }
             }
         });
@@ -41,34 +46,59 @@ impl Brightness {
     }
 }
 
-fn sync() -> anyhow::Result<()> {
-    let level = builtin()?;
-    for mut monitor in Monitor::enumerate()? {
-        let maximum = monitor.get_vcp_feature(LUMINANCE)?.maximum();
-        monitor.set_vcp_feature(LUMINANCE, (level * f32::from(maximum)).round() as u16)?;
+/// Sets each external display to `level`, from 0 to 1.
+fn follow(level: f32) {
+    let monitors = match Monitor::enumerate() {
+        Ok(monitors) => monitors,
+        Err(error) => return tracing::warn!(%error, "listing displays"),
+    };
+    for mut monitor in monitors {
+        let result = monitor.get_vcp_feature(LUMINANCE).and_then(|value| {
+            monitor.set_vcp_feature(
+                LUMINANCE,
+                (level * f32::from(value.maximum())).round() as u16,
+            )
+        });
+        if let Err(error) = result {
+            tracing::warn!(%error, display = monitor.description(), "setting brightness");
+        }
     }
-    Ok(())
 }
 
-/// The built-in display's brightness, from 0 to 1.
-fn builtin() -> anyhow::Result<f32> {
-    let mut displays = [0; 16];
-    let mut count = 0;
-    unsafe { CGGetActiveDisplayList(displays.len() as u32, displays.as_mut_ptr(), &mut count) };
-    let display = displays[..count as usize]
-        .iter()
-        .copied()
-        .find(|&display| CGDisplayIsBuiltin(display))
-        .ok_or_else(|| anyhow::anyhow!("no built-in display"))?;
-    let library = unsafe { Library::new(DISPLAY_SERVICES) }?;
-    let get = unsafe {
-        library.get::<unsafe extern "C" fn(CGDirectDisplayID, *mut f32) -> i32>(
-            b"DisplayServicesGetBrightness",
-        )
-    }?;
-    let mut level = 0.0;
-    match unsafe { get(display, &mut level) } {
-        0 => Ok(level),
-        error => anyhow::bail!("DisplayServicesGetBrightness returned {error}"),
+type GetBrightness = unsafe extern "C" fn(CGDirectDisplayID, *mut f32) -> i32;
+
+/// The built-in display, read through the private DisplayServices framework.
+struct Builtin {
+    display: CGDirectDisplayID,
+    get: GetBrightness,
+    _library: Library,
+}
+
+impl Builtin {
+    fn load() -> anyhow::Result<Self> {
+        let mut displays = [0; 16];
+        let mut count = 0;
+        unsafe { CGGetActiveDisplayList(displays.len() as u32, displays.as_mut_ptr(), &mut count) };
+        let display = displays[..count as usize]
+            .iter()
+            .copied()
+            .find(|&display| CGDisplayIsBuiltin(display))
+            .ok_or_else(|| anyhow::anyhow!("no built-in display"))?;
+        let library = unsafe { Library::new(DISPLAY_SERVICES) }?;
+        let get = *unsafe { library.get::<GetBrightness>(b"DisplayServicesGetBrightness") }?;
+        Ok(Self {
+            display,
+            get,
+            _library: library,
+        })
+    }
+
+    /// From 0 to 1.
+    fn brightness(&self) -> anyhow::Result<f32> {
+        let mut level = 0.0;
+        match unsafe { (self.get)(self.display, &mut level) } {
+            0 => Ok(level),
+            error => anyhow::bail!("DisplayServicesGetBrightness returned {error}"),
+        }
     }
 }

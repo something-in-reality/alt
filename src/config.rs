@@ -82,13 +82,6 @@ impl Config {
             .and_then(|app| app.bindsym.get(combo))
             .or_else(|| self.bindsym.get(combo))
     }
-
-    /// Whether `combo` has a binding in some application, so resolving it needs the front one.
-    pub fn is_app_bound(&self, combo: &Combo) -> bool {
-        self.app_id
-            .values()
-            .any(|app| app.bindsym.contains_key(combo))
-    }
 }
 
 impl FromStr for Config {

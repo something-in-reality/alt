@@ -2,7 +2,7 @@
 
 use std::{fmt, str::FromStr};
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer, de};
 use serde_with::DeserializeFromStr;
 
 use crate::combo::Combo;
@@ -84,23 +84,37 @@ impl fmt::Display for Px {
 }
 
 /// One action or a sequence, run in order.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(from = "OneOrMany")]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Command(pub Vec<Action>);
 
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum OneOrMany {
-    One(Action),
-    Many(Vec<Action>),
-}
+impl<'de> Deserialize<'de> for Command {
+    /// Keeps the inner error, which an untagged enum would replace.
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
 
-impl From<OneOrMany> for Command {
-    fn from(actions: OneOrMany) -> Self {
-        match actions {
-            OneOrMany::One(action) => Self(vec![action]),
-            OneOrMany::Many(actions) => Self(actions),
+        impl<'de> de::Visitor<'de> for Visitor {
+            type Value = Command;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("an action or a list of actions")
+            }
+
+            fn visit_str<E: de::Error>(self, s: &str) -> Result<Command, E> {
+                Action::deserialize(de::value::StrDeserializer::new(s))
+                    .map(|action| Command(vec![action]))
+            }
+
+            fn visit_map<A: de::MapAccess<'de>>(self, map: A) -> Result<Command, A::Error> {
+                Action::deserialize(de::value::MapAccessDeserializer::new(map))
+                    .map(|action| Command(vec![action]))
+            }
+
+            fn visit_seq<A: de::SeqAccess<'de>>(self, seq: A) -> Result<Command, A::Error> {
+                Vec::deserialize(de::value::SeqAccessDeserializer::new(seq)).map(Command)
+            }
         }
+
+        deserializer.deserialize_any(Visitor)
     }
 }
 

@@ -1,9 +1,9 @@
 //! Mac virtual key codes and event flags, to and from `Combo`.
 
-use keycode::{KeyMap, KeyMapping};
+use keycode::{KeyMap, KeyMapping, KeyMappingCode};
 use objc2_core_graphics::CGEventFlags;
 
-use crate::combo::{Key, Modifiers};
+use crate::combo::{Combo, Key, Modifiers};
 
 const DICTATION: u16 = 176;
 
@@ -42,11 +42,28 @@ pub fn modifiers(flags: CGEventFlags) -> Modifiers {
         .collect()
 }
 
-pub fn flags(modifiers: Modifiers) -> CGEventFlags {
+/// The flags a keyboard sets for `combo`, including those arrow and navigation keys carry.
+pub fn flags(combo: Combo) -> CGEventFlags {
+    let implicit = match combo.key {
+        Key::Code(
+            KeyMappingCode::ArrowLeft
+            | KeyMappingCode::ArrowRight
+            | KeyMappingCode::ArrowUp
+            | KeyMappingCode::ArrowDown,
+        ) => CGEventFlags::MaskSecondaryFn | CGEventFlags::MaskNumericPad,
+        Key::Code(
+            KeyMappingCode::Home
+            | KeyMappingCode::End
+            | KeyMappingCode::PageUp
+            | KeyMappingCode::PageDown
+            | KeyMappingCode::Delete,
+        ) => CGEventFlags::MaskSecondaryFn,
+        _ => CGEventFlags::empty(),
+    };
     MODIFIERS
         .into_iter()
-        .filter(|&(modifier, _)| modifiers.contains(modifier))
-        .fold(CGEventFlags::empty(), |flags, (_, flag)| flags | flag)
+        .filter(|&(modifier, _)| combo.modifiers.contains(modifier))
+        .fold(implicit, |flags, (_, flag)| flags | flag)
 }
 
 #[cfg(test)]
@@ -72,7 +89,10 @@ mod tests {
 
     #[test]
     fn modifiers_round_trip() {
-        let all = Modifiers::all();
-        assert_eq!(modifiers(flags(all) | CGEventFlags::MaskSecondaryFn), all);
+        let combo = Combo {
+            modifiers: Modifiers::all(),
+            key: "ArrowLeft".parse().unwrap(),
+        };
+        assert_eq!(modifiers(flags(combo)), combo.modifiers);
     }
 }

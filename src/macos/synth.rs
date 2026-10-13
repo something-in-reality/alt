@@ -41,7 +41,7 @@ impl Keyboard {
             .ok_or(Error::Unavailable("an event source"))
     }
 
-    pub fn press(&self, combo: &Combo) -> Result<(), Error> {
+    pub fn press(&self, combo: Combo) -> Result<(), Error> {
         if let Some(kind) = media(combo.key) {
             return [0xa, 0xb]
                 .into_iter()
@@ -51,15 +51,14 @@ impl Keyboard {
         [true, false].into_iter().try_for_each(|down| {
             let event = CGEvent::new_keyboard_event(Some(&self.source), code, down)
                 .ok_or(Error::Unavailable("a keyboard event"))?;
-            CGEvent::set_flags(Some(&event), keymap::flags(combo.modifiers));
+            CGEvent::set_flags(Some(&event), keymap::flags(combo));
             post(&event);
             Ok(())
         })
     }
 
     pub fn type_text(&self, text: &str) -> Result<(), Error> {
-        let units: Vec<u16> = text.encode_utf16().collect();
-        units.chunks(20).try_for_each(|chunk| {
+        utf16_chunks(text).iter().try_for_each(|chunk| {
             [true, false].into_iter().try_for_each(|down| {
                 let event = CGEvent::new_keyboard_event(Some(&self.source), 0, down)
                     .ok_or(Error::Unavailable("a keyboard event"))?;
@@ -75,6 +74,21 @@ impl Keyboard {
             })
         })
     }
+}
+
+/// A keyboard event carries at most 20 UTF-16 units; chunks never split a character.
+fn utf16_chunks(text: &str) -> Vec<Vec<u16>> {
+    const MAX: usize = 20;
+    text.chars()
+        .fold(Vec::new(), |mut chunks: Vec<Vec<u16>>, c| {
+            let mut buffer = [0; 2];
+            let units = c.encode_utf16(&mut buffer);
+            match chunks.last_mut() {
+                Some(chunk) if chunk.len() + units.len() <= MAX => chunk.extend_from_slice(units),
+                _ => chunks.push(units.to_vec()),
+            }
+            chunks
+        })
 }
 
 fn post(event: &CGEvent) {
@@ -99,4 +113,17 @@ fn post_media(kind: isize, state: isize) -> Result<(), Error> {
     .ok_or(Error::Unavailable("a media key event"))?;
     post(&event);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chunks_keep_surrogate_pairs_whole() {
+        let text = format!("{}😀", "a".repeat(19));
+        let chunks = utf16_chunks(&text);
+        assert_eq!(chunks.iter().map(Vec::len).collect::<Vec<_>>(), [19, 2]);
+        assert_eq!(String::from_utf16(&chunks.concat()).unwrap(), text);
+    }
 }
