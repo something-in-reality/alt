@@ -17,7 +17,7 @@ fn main() -> io::Result<()> {
     let dir = Path::new(&env::var_os("CARGO_MANIFEST_DIR").unwrap_or_default()).join(dir);
     fs::create_dir_all(&dir)?;
     let mut command = cli::Cli::command();
-    for shell in [Shell::Bash, Shell::Fish, Shell::Zsh] {
+    for shell in [Shell::Bash, Shell::Zsh] {
         clap_complete::generate_to(shell, &mut command, "accessibility", &dir)?;
     }
     Ok(())

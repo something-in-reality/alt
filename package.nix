@@ -37,7 +37,7 @@ rustPlatform.buildRustPackage {
     app=$out/Applications/Accessibility.app/Contents
     install -D $out/bin/accessibility $app/MacOS/accessibility
     substitute Info.plist $app/Info.plist --subst-var version --subst-var-by identifier ${identifier}
-    installShellCompletion completions/{accessibility.bash,accessibility.fish,_accessibility}
+    installShellCompletion completions/{accessibility.bash,_accessibility}
   '';
 
   # The bundle identifier, which names the app's permissions and log subsystem.
