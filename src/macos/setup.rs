@@ -205,9 +205,17 @@ fn flash(half: Half, firmware: &Path) -> anyhow::Result<()> {
     while !volume.exists() {
         thread::sleep(POLL);
     }
-    // The half restarts once it has written the last block, which can end the copy with an error;
-    // the restart is the success.
-    let copied = fs::write(volume.join("glove80.uf2"), &bytes);
+    // The volume appears before it accepts writes, so the copy retries while it stays mounted. The
+    // half restarts once it has written the last block, which can end the copy with an error; the
+    // restart is the success.
+    let mut copied = fs::write(volume.join("glove80.uf2"), &bytes);
+    for _ in 0..20 {
+        if copied.is_ok() || !volume.exists() {
+            break;
+        }
+        thread::sleep(POLL);
+        copied = fs::write(volume.join("glove80.uf2"), &bytes);
+    }
     let restarted = (0..40).any(|_| {
         thread::sleep(POLL);
         !volume.exists()
