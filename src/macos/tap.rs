@@ -30,8 +30,10 @@ pub struct Tap {
 
 impl Tap {
     /// Installs a tap for `events` on the current run loop, or `None` without permission.
+    /// A listen-only tap never holds input; its handler's result is ignored.
     pub fn new(
         events: &[CGEventType],
+        options: CGEventTapOptions,
         handler: impl Fn(CGEventType, &CGEvent) -> bool + 'static,
     ) -> Option<Self> {
         let state = Box::into_raw(Box::new(State {
@@ -43,7 +45,7 @@ impl Tap {
             CGEvent::tap_create(
                 CGEventTapLocation::SessionEventTap,
                 CGEventTapPlacement::HeadInsertEventTap,
-                CGEventTapOptions::Default,
+                options,
                 mask,
                 Some(callback),
                 state.cast(),
@@ -75,6 +77,7 @@ unsafe extern "C-unwind" fn callback(
 ) -> *mut CGEvent {
     let state = unsafe { &*state.cast::<State>() };
     if kind == CGEventType::TapDisabledByTimeout || kind == CGEventType::TapDisabledByUserInput {
+        tracing::warn!(?kind, "re-enabling the event tap");
         if let Some(port) = unsafe { state.port.as_ref() } {
             CGEvent::tap_enable(port, true);
         }

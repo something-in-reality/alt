@@ -31,8 +31,11 @@ enum Commands {
     Run,
     /// Checks the configuration.
     Check,
-    /// Prints each event and the front application as they happen.
+    /// Prints each event and the front application as they happen, without affecting them.
     Events,
+    /// Exits successfully when this process may observe and post input.
+    #[command(hide = true)]
+    Trusted,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -55,14 +58,19 @@ fn main() -> anyhow::Result<()> {
         Commands::Run => {
             let config = Arc::new(ArcSwap::from_pointee(Config::load(&path)?));
             let _watcher = watch(path, config.clone()).context("watching the configuration")?;
-            platform::run(Session, Desktop::new()?, config)?;
+            platform::run(Session::default(), Desktop::new()?, config)?;
         }
         Commands::Events => {
-            Session.run(|event, cx| {
+            Session::listen_only().run(|event, cx| {
                 let front = cx.front().map(|app| app.to_string()).unwrap_or_default();
                 println!("{event}\t{front}");
                 Verdict::Pass
             })?;
+        }
+        Commands::Trusted => {
+            if !accessibility::macos::trusted() {
+                std::process::exit(1);
+            }
         }
     }
     Ok(())

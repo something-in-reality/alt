@@ -7,15 +7,30 @@ mod synth;
 mod tap;
 mod window;
 
-use std::{convert::Infallible, process, thread};
+use std::{
+    cell::RefCell,
+    convert::Infallible,
+    env,
+    os::unix::process::CommandExt,
+    process,
+    rc::Rc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    thread,
+    time::{Duration, Instant},
+};
 
 use dispatch2::{DispatchQueue, DispatchQueueAttr, DispatchRetained};
 use keycode::KeyMappingCode;
 use objc2::rc::autoreleasepool;
 use objc2_app_kit::{NSEvent, NSEventType};
-use objc2_application_services::{AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt};
+use objc2_application_services::{
+    AXIsProcessTrusted, AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt,
+};
 use objc2_core_foundation::{CFBoolean, CFDictionary, CFRunLoop};
-use objc2_core_graphics::{CGEvent, CGEventField, CGEventType};
+use objc2_core_graphics::{CGEvent, CGEventField, CGEventTapOptions, CGEventType};
 use objc2_foundation::{NSString, NSUserDefaults};
 
 use self::{display::Displays, synth::Keyboard, tap::Tap};
@@ -28,8 +43,6 @@ use crate::{
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Accessibility permission is missing; grant it, then restart")]
-    Untrusted,
     #[error("creating the event tap failed")]
     Tap,
     #[error("the run loop ended")]
@@ -56,10 +69,16 @@ pub enum Error {
 const SYSTEM_DEFINED: CGEventType = CGEventType(14);
 
 /// The login session's keys, scrolling and brightness keys, from an event tap.
-pub struct Session;
+#[derive(Default)]
+pub struct Session {
+    listen_only: bool,
+}
 
-/// Running applications, through NSWorkspace.
-pub struct Apps;
+/// Running applications; the front one is kept current by NSWorkspace's notifications, so a
+/// decision never waits on another process.
+pub struct Apps {
+    front: RefCell<Option<AppId>>,
+}
 
 /// Applies effects: actions in order on one serial queue, brightness on another.
 pub struct Desktop {
@@ -81,12 +100,25 @@ impl Input for Session {
 
     fn run(self, handle: impl Fn(Event, &Apps) -> Verdict + 'static) -> Result<Infallible, Error> {
         trust()?;
+        let apps = Rc::new(Apps {
+            front: RefCell::new(app::front()),
+        });
+        let _observer = app::on_activate({
+            let apps = apps.clone();
+            move |front| *apps.front.borrow_mut() = Some(front)
+        });
+        let options = if self.listen_only {
+            CGEventTapOptions::ListenOnly
+        } else {
+            CGEventTapOptions::Default
+        };
         let _tap = Tap::new(
             &[
                 CGEventType::KeyDown,
                 CGEventType::ScrollWheel,
                 SYSTEM_DEFINED,
             ],
+            options,
             move |kind, event| {
                 if synth::is_synthetic(event) {
                     return true;
@@ -94,7 +126,7 @@ impl Input for Session {
                 let Some(input) = read(kind, event) else {
                     return true;
                 };
-                match handle(input, &Apps) {
+                match handle(input, &apps) {
                     Verdict::Pass => true,
                     Verdict::Drop => false,
                     Verdict::Reverse => {
@@ -105,15 +137,25 @@ impl Input for Session {
             },
         )
         .ok_or(Error::Tap)?;
+        if !self.listen_only {
+            watchdog();
+        }
         tracing::info!("running");
         CFRunLoop::run();
         Err(Error::RunLoopEnded)
     }
 }
 
+impl Session {
+    /// A session whose tap only observes, which never holds input.
+    pub fn listen_only() -> Self {
+        Self { listen_only: true }
+    }
+}
+
 impl Context for Apps {
     fn front(&self) -> Option<AppId> {
-        app::front()
+        self.front.borrow().clone()
     }
 }
 
@@ -137,17 +179,57 @@ impl Output for Desktop {
     }
 }
 
-/// Prompts for Accessibility permission when the process lacks it.
-/// A process sees a grant only after it restarts, so an untrusted process prompts and exits.
+/// Exits when the main thread, which decides each tapped event, stops responding: an active tap
+/// holds all input while its callback runs, and the tap ends with the process.
+fn watchdog() {
+    const LIMIT: Duration = Duration::from_secs(2);
+    let beat = Arc::new(AtomicU64::new(0));
+    thread::spawn(move || {
+        let start = Instant::now();
+        let elapsed = || start.elapsed().as_millis() as u64;
+        loop {
+            let main = beat.clone();
+            let now = elapsed();
+            DispatchQueue::main().exec_async(move || main.store(now, Ordering::Relaxed));
+            thread::sleep(LIMIT / 2);
+            if elapsed() - beat.load(Ordering::Relaxed) > LIMIT.as_millis() as u64 {
+                tracing::error!("the main thread stopped responding; exiting to release input");
+                process::exit(1);
+            }
+        }
+    });
+}
+
+/// Whether this process may observe and post input.
+pub fn trusted() -> bool {
+    unsafe { AXIsProcessTrusted() }
+}
+
+/// Prompts once when untrusted, then waits for the grant and restarts into it: a process sees a
+/// grant only from its next start, so a fresh child process checks for it.
 fn trust() -> Result<(), Error> {
     let prompt = CFDictionary::from_slices(
         &[unsafe { kAXTrustedCheckOptionPrompt }],
         &[CFBoolean::new(true)],
     );
     if unsafe { AXIsProcessTrustedWithOptions(Some(prompt.as_opaque())) } {
-        Ok(())
-    } else {
-        Err(Error::Untrusted)
+        return Ok(());
+    }
+    tracing::info!("waiting for Accessibility permission");
+    let exe = env::current_exe()?;
+    loop {
+        thread::sleep(Duration::from_secs(3));
+        if process::Command::new(&exe)
+            .arg("trusted")
+            .status()?
+            .success()
+        {
+            tracing::info!("permission granted; restarting");
+            return Err(process::Command::new(&exe)
+                .args(env::args_os().skip(1))
+                .exec()
+                .into());
+        }
     }
 }
 
