@@ -20,8 +20,9 @@ rustPlatform.buildRustPackage {
 
   # An app bundle gives the binary a bundle identifier for its permissions.
   postInstall = ''
-    install -D -m 0644 Info.plist $out/Applications/Accessibility.app/Contents/Info.plist
-    install -D $out/bin/accessibility $out/Applications/Accessibility.app/Contents/MacOS/accessibility
+    app=$out/Applications/Accessibility.app/Contents
+    install -D $out/bin/accessibility $app/MacOS/accessibility
+    substitute Info.plist $app/Info.plist --subst-var version
   '';
 
   meta = {

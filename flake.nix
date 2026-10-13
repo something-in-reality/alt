@@ -11,6 +11,7 @@
     {
       packages = forAllSystems (system: {
         default = nixpkgs.legacyPackages.${system}.callPackage ./package.nix { };
+        certificate = nixpkgs.legacyPackages.${system}.callPackage ./certificate.nix { };
       });
 
       homeManagerModules.default = ./module.nix;

@@ -1,7 +1,7 @@
-# home-manager module: the accessibility binary as a launchd agent at login, reading
+# home-manager module: the accessibility app as a launchd agent at login, reading
 # $XDG_CONFIG_HOME/accessibility/config.toml. Activation copies the app to ~/Applications and signs
-# it with a designated requirement of its identifier alone, so its Accessibility permission
-# survives rebuilds.
+# it with `certificate`, so its Accessibility permission survives rebuilds; `nix run
+# <this flake>#certificate` creates one.
 {
   config,
   lib,
@@ -11,7 +11,7 @@
 let
   service = config.services.accessibility;
   bundle = "${config.home.homeDirectory}/Applications/Accessibility.app";
-  identifier = "dev.012.accessibility";
+  identifier = "io.github.something-in-reality.accessibility";
 in
 {
   options.services.accessibility = {
@@ -29,6 +29,12 @@ in
       description = "The configuration file; null leaves it unmanaged.";
     };
 
+    certificate = lib.mkOption {
+      type = lib.types.str;
+      example = "something-in-reality";
+      description = "The code-signing identity in the login keychain that signs the app.";
+    };
+
     path = lib.mkOption {
       type = lib.types.listOf lib.types.package;
       default = [ ];
@@ -42,12 +48,15 @@ in
     # Copies and signs the app when the package changes, then restarts the agent onto it.
     home.activation.accessibility = lib.hm.dag.entryAfter [ "setupLaunchAgents" ] ''
       source=${service.package}/Applications/Accessibility.app
-      if [ "$(cat ${bundle}/Contents/source 2>/dev/null)" != "$source" ]; then
+      certificate=${lib.escapeShellArg service.certificate}
+      if ! /usr/bin/security find-identity -v -p codesigning | grep -qF "\"$certificate\""; then
+        echo "accessibility: no code-signing identity \"$certificate\"; create it with the" \
+          "accessibility flake's certificate app" >&2
+      elif [ "$(cat ${bundle}/Contents/source 2>/dev/null)" != "$source" ]; then
         run rm -rf ${bundle}
         run cp -R "$source" ${bundle}
         run chmod -R u+w ${bundle}
-        run /usr/bin/codesign --force --sign - --identifier ${identifier} \
-          -r='designated => identifier "${identifier}"' ${bundle}
+        run /usr/bin/codesign --force --sign "$certificate" ${bundle}
         echo "$source" > ${bundle}/Contents/source
         run /bin/launchctl kickstart -k gui/$(id -u)/org.nix-community.home.accessibility || true
       fi
@@ -64,6 +73,7 @@ in
           "${bundle}/Contents/MacOS/accessibility"
           "run"
         ];
+        AssociatedBundleIdentifiers = identifier;
         RunAtLoad = true;
         KeepAlive = true;
         ProcessType = "Interactive";
