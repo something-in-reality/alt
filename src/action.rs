@@ -41,8 +41,9 @@ impl fmt::Display for AppId {
 pub enum Action {
     /// Runs a command with `sh -c`.
     Exec(String),
-    /// Presses a key combination.
-    Key(Combo),
+    /// Presses a key combination; `key` in xdotool's vocabulary.
+    #[serde(rename = "key")]
+    Press(Combo),
     /// Types text.
     Type(String),
     /// Brings a running application to the front.

@@ -6,13 +6,16 @@ use arc_swap::ArcSwap;
 
 use crate::{
     config::Config,
-    event::{Context, Effect, Event, Verdict},
+    event::{Context, Effect, Event, System, Verdict},
 };
 
 /// A source of events, which runs until the process ends.
 pub trait Input {
     type Context: Context;
     type Error: Error + Send + Sync + 'static;
+
+    /// The platform's settings, read once.
+    fn system(&self) -> System;
 
     fn run(
         self,
@@ -31,8 +34,9 @@ pub fn run<I: Input>(
     output: impl Output + 'static,
     config: Arc<ArcSwap<Config>>,
 ) -> Result<Infallible, I::Error> {
+    let system = input.system();
     input.run(move |event, cx| {
-        let decision = config.load().decide(event, cx);
+        let decision = config.load().decide(event, &system, cx);
         if let Some(effect) = decision.effect {
             output.apply(effect);
         }

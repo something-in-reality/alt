@@ -24,7 +24,8 @@ const DISPLAY_SERVICES: &str =
 
 type GetBrightness = unsafe extern "C" fn(CGDirectDisplayID, *mut f32) -> i32;
 
-pub struct Display {
+/// External displays, which follow the built-in display's brightness.
+pub struct Displays {
     queue: DispatchRetained<DispatchQueue>,
     builtin: Arc<Builtin>,
     /// Counts sync requests; a delayed sync runs only if no later request followed it.
@@ -37,7 +38,7 @@ struct Builtin {
     _library: Library,
 }
 
-impl Display {
+impl Displays {
     pub fn new() -> Result<Self, Error> {
         Ok(Self {
             queue: DispatchQueue::new("accessibility.display", DispatchQueueAttr::SERIAL),

@@ -21,11 +21,11 @@ struct Cli {
     #[arg(long, global = true)]
     config: Option<PathBuf>,
     #[command(subcommand)]
-    command: Option<Command>,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand, Default)]
-enum Command {
+enum Commands {
     /// Applies the configuration, reloading it when it changes.
     #[default]
     Run,
@@ -48,17 +48,17 @@ fn main() -> anyhow::Result<()> {
             .join("accessibility/config.toml"),
     };
     match cli.command.unwrap_or_default() {
-        Command::Check => {
+        Commands::Check => {
             Config::load(&path)?;
         }
-        Command::Run => {
+        Commands::Run => {
             let config = Arc::new(ArcSwap::from_pointee(Config::load(&path)?));
             let _watcher = watch(path, config.clone()).context("watching the configuration")?;
             platform::run(Session, Desktop::new()?, config)?;
         }
-        Command::Events => {
+        Commands::Events => {
             Session.run(|event, cx| {
-                if let Event::Key { combo, .. } = event {
+                if let Event::Press { combo, .. } = event {
                     println!(
                         "{combo}\t{}",
                         cx.front().map(|app| app.to_string()).unwrap_or_default()

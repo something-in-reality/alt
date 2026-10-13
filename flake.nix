@@ -13,6 +13,8 @@
         default = nixpkgs.legacyPackages.${system}.callPackage ./package.nix { };
       });
 
+      homeManagerModules.default = ./module.nix;
+
       devShells = forAllSystems (system: {
         default =
           with nixpkgs.legacyPackages.${system};

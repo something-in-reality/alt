@@ -9,7 +9,7 @@ use crate::{
 /// Input from the platform.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
-    Key {
+    Press {
         combo: Combo,
         repeat: bool,
     },
@@ -18,7 +18,7 @@ pub enum Event {
         continuous: bool,
     },
     /// A brightness key, after the system has applied it.
-    Brightness,
+    BrightnessKey,
     Launched(AppId),
 }
 
@@ -49,64 +49,62 @@ pub struct Decision {
     pub effect: Option<Effect>,
 }
 
-/// The platform state a decision may need.
+/// The platform's own settings, which the configuration is relative to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct System {
+    pub natural_scroll: bool,
+}
+
+/// Live platform state, queried only when a decision needs it.
 pub trait Context {
     fn front(&self) -> Option<AppId>;
-    /// The system scroll direction, which `natural_scroll` is relative to.
-    fn natural_scroll(&self) -> bool;
 }
 
 impl Decision {
-    const PASS: Self = Self {
-        verdict: Verdict::Pass,
-        effect: None,
-    };
+    const PASS: Self = Self::verdict(Verdict::Pass);
 
-    fn run(verdict: Verdict, command: &Command, subject: Option<AppId>) -> Self {
-        let command = command.clone();
+    const fn verdict(verdict: Verdict) -> Self {
         Self {
             verdict,
-            effect: Some(Effect::Run { command, subject }),
+            effect: None,
+        }
+    }
+
+    fn run(verdict: Verdict, command: &Command, subject: Option<AppId>) -> Self {
+        Self {
+            verdict,
+            effect: Some(Effect::Run {
+                command: command.clone(),
+                subject,
+            }),
         }
     }
 }
 
 impl Config {
     /// Decides an event: a bound key is dropped and runs its command once per press.
-    pub fn decide(&self, event: Event, cx: &impl Context) -> Decision {
+    pub fn decide(&self, event: Event, system: &System, cx: &impl Context) -> Decision {
         match event {
-            Event::Key { combo, repeat } => {
+            Event::Press { combo, repeat } => {
                 let front = cx.front();
                 match self.bindsym(front.as_ref(), &combo) {
                     None => Decision::PASS,
-                    Some(_) if repeat => Decision {
-                        verdict: Verdict::Drop,
-                        effect: None,
-                    },
+                    Some(_) if repeat => Decision::verdict(Verdict::Drop),
                     Some(command) => Decision::run(Verdict::Drop, command, front),
                 }
             }
-            Event::Scroll { continuous } => {
-                let reverse = !continuous
-                    && self
-                        .input
-                        .pointer
-                        .natural_scroll
-                        .is_some_and(|natural| natural != cx.natural_scroll());
-                Decision {
-                    verdict: if reverse {
-                        Verdict::Reverse
-                    } else {
-                        Verdict::Pass
-                    },
-                    effect: None,
+            Event::Scroll { continuous: false } => match self.input.pointer.natural_scroll {
+                Some(wanted) if wanted != system.natural_scroll => {
+                    Decision::verdict(Verdict::Reverse)
                 }
-            }
-            Event::Brightness if self.brightness.sync => Decision {
+                _ => Decision::PASS,
+            },
+            Event::Scroll { continuous: true } => Decision::PASS,
+            Event::BrightnessKey if self.brightness.sync => Decision {
                 verdict: Verdict::Pass,
                 effect: Some(Effect::SyncBrightness),
             },
-            Event::Brightness => Decision::PASS,
+            Event::BrightnessKey => Decision::PASS,
             Event::Launched(app) => match self.for_window.get(&app) {
                 Some(command) => Decision::run(Verdict::Pass, command, Some(app)),
                 None => Decision::PASS,
@@ -121,77 +119,116 @@ mod tests {
     use crate::action::Action;
 
     const EXAMPLE: &str = include_str!("../config.toml");
-
-    struct Desk {
-        front: Option<&'static str>,
-        natural_scroll: bool,
-    }
-
-    impl Context for Desk {
-        fn front(&self) -> Option<AppId> {
-            self.front.map(AppId::from)
-        }
-
-        fn natural_scroll(&self) -> bool {
-            self.natural_scroll
-        }
-    }
-
-    const DESK: Desk = Desk {
-        front: Some("org.nixos.firefox"),
+    const NATURAL: System = System {
         natural_scroll: true,
     };
+    const FIREFOX: &str = "org.nixos.firefox";
+    const GHOSTTY: &str = "com.mitchellh.ghostty";
 
-    fn key(combo: &str, repeat: bool) -> Event {
-        Event::Key {
+    /// The front application.
+    struct Front(Option<&'static str>);
+
+    impl Context for Front {
+        fn front(&self) -> Option<AppId> {
+            self.0.map(AppId::from)
+        }
+    }
+
+    fn config() -> Config {
+        EXAMPLE.parse().unwrap()
+    }
+
+    fn press(front: &'static str, combo: &str, repeat: bool) -> Decision {
+        let event = Event::Press {
             combo: combo.parse().unwrap(),
             repeat,
+        };
+        config().decide(event, &NATURAL, &Front(Some(front)))
+    }
+
+    fn actions(toml: &str) -> Vec<Action> {
+        #[derive(serde::Deserialize)]
+        struct Wrapper {
+            command: Command,
+        }
+        let wrapper: Wrapper = toml::from_str(&format!("command = {toml}")).unwrap();
+        wrapper.command.as_ref().to_vec()
+    }
+
+    #[test]
+    fn every_trigger_runs_its_command_in_its_application() {
+        let triggers = [
+            (GHOSTTY, "F1", r#"{ key = "Dictation" }"#),
+            (GHOSTTY, "F3", r#"{ workspace = "prev" }"#),
+            (GHOSTTY, "F4", r#"{ exec = "open -a 'Mission Control'" }"#),
+            (FIREFOX, "F5", r#"{ workspace = "next" }"#),
+            (GHOSTTY, "F6", r#"{ key = "AudioVolumeMute" }"#),
+            (GHOSTTY, "ctrl+KeyT", r#"{ type = "✓" }"#),
+            (GHOSTTY, "Home", r#"{ focus = "org.nixos.firefox" }"#),
+            (FIREFOX, "End", r#"{ focus = "com.mitchellh.ghostty" }"#),
+            (
+                GHOSTTY,
+                "super+Home",
+                r#"{ resize = { grow = { width = "100px" } } }"#,
+            ),
+            (
+                GHOSTTY,
+                "super+End",
+                r#"{ resize = { shrink = { width = "100px" } } }"#,
+            ),
+            (
+                FIREFOX,
+                "super+Home",
+                r#"{ resize = { shrink = { width = "100px" } } }"#,
+            ),
+            (
+                FIREFOX,
+                "super+End",
+                r#"{ resize = { grow = { width = "100px" } } }"#,
+            ),
+            (FIREFOX, "PageUp", r#"{ key = "ctrl+shift+Tab" }"#),
+            (FIREFOX, "PageDown", r#"{ key = "ctrl+Tab" }"#),
+            (FIREFOX, "Backquote", r#"{ key = "ctrl+KeyZ" }"#),
+            (FIREFOX, "ctrl+Backquote", r#"{ key = "ctrl+KeyZ" }"#),
+            (
+                FIREFOX,
+                "super+Backquote",
+                r#"[{ key = "super+KeyL" }, { key = "alt+Enter" }]"#,
+            ),
+        ];
+        for (front, combo, expected) in triggers {
+            let decision = press(front, combo, false);
+            assert_eq!(decision.verdict, Verdict::Drop, "{combo} in {front}");
+            let Some(Effect::Run { command, subject }) = decision.effect else {
+                panic!("{combo} in {front} runs nothing");
+            };
+            assert_eq!(command.as_ref(), actions(expected), "{combo} in {front}");
+            assert_eq!(subject, Some(AppId::from(front)));
         }
     }
 
     #[test]
-    fn bound_keys_drop_and_run_once_per_press() {
-        let config: Config = EXAMPLE.parse().unwrap();
-        let decision = config.decide(key("PageUp", false), &DESK);
-        assert_eq!(decision.verdict, Verdict::Drop);
-        let Some(Effect::Run { command, subject }) = decision.effect else {
-            panic!()
-        };
+    fn repeats_drop_without_running() {
         assert_eq!(
-            command.as_ref(),
-            [Action::Key("ctrl+shift+Tab".parse().unwrap())]
-        );
-        assert_eq!(subject, Some(AppId::from("org.nixos.firefox")));
-        assert_eq!(
-            config.decide(key("PageUp", true), &DESK),
-            Decision {
-                verdict: Verdict::Drop,
-                effect: None
-            }
+            press(FIREFOX, "PageUp", true),
+            Decision::verdict(Verdict::Drop)
         );
     }
 
     #[test]
     fn unbound_keys_pass() {
-        let config: Config = EXAMPLE.parse().unwrap();
-        let desk = Desk {
-            front: Some("com.mitchellh.ghostty"),
-            ..DESK
-        };
-        assert_eq!(config.decide(key("PageUp", false), &desk), Decision::PASS);
+        assert_eq!(press(GHOSTTY, "PageUp", false), Decision::PASS);
+        assert_eq!(press(FIREFOX, "KeyA", false), Decision::PASS);
     }
 
     #[test]
     fn only_discrete_scrolling_against_the_system_reverses() {
-        let config: Config = EXAMPLE.parse().unwrap();
         let scroll = |continuous, natural_scroll| {
-            config
+            config()
                 .decide(
                     Event::Scroll { continuous },
-                    &Desk {
-                        natural_scroll,
-                        ..DESK
-                    },
+                    &System { natural_scroll },
+                    &Front(None),
                 )
                 .verdict
         };
@@ -202,25 +239,17 @@ mod tests {
 
     #[test]
     fn brightness_syncs_when_configured() {
-        let config: Config = EXAMPLE.parse().unwrap();
-        assert_eq!(
-            config.decide(Event::Brightness, &DESK).effect,
-            Some(Effect::SyncBrightness)
-        );
-        assert_eq!(
-            Config::default().decide(Event::Brightness, &DESK),
-            Decision::PASS
-        );
+        let decide = |config: Config| config.decide(Event::BrightnessKey, &NATURAL, &Front(None));
+        assert_eq!(decide(config()).effect, Some(Effect::SyncBrightness));
+        assert_eq!(decide(Config::default()), Decision::PASS);
     }
 
     #[test]
     fn launches_run_window_rules_on_the_launched_app() {
-        let config: Config = EXAMPLE.parse().unwrap();
         let music = AppId::from("com.apple.Music");
-        let Some(Effect::Run { command, subject }) =
-            config.decide(Event::Launched(music.clone()), &DESK).effect
-        else {
-            panic!()
+        let decision = config().decide(Event::Launched(music.clone()), &NATURAL, &Front(None));
+        let Some(Effect::Run { command, subject }) = decision.effect else {
+            panic!("Music's launch runs nothing");
         };
         assert_eq!(command.as_ref(), [Action::Kill]);
         assert_eq!(subject, Some(music));

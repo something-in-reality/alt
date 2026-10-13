@@ -136,8 +136,8 @@ mod tests {
         assert_eq!(
             command(&config, Some("org.nixos.firefox"), "super+Backquote"),
             Some(vec![
-                Action::Key("super+KeyL".parse().unwrap()),
-                Action::Key("alt+Enter".parse().unwrap()),
+                Action::Press("super+KeyL".parse().unwrap()),
+                Action::Press("alt+Enter".parse().unwrap()),
             ])
         );
         assert_eq!(

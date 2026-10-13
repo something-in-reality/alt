@@ -20,11 +20,11 @@ use objc2_core_foundation::{CFBoolean, CFDictionary, CFRunLoop};
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventType};
 use objc2_foundation::{NSString, NSUserDefaults};
 
-use self::{display::Display, synth::Keyboard, tap::Tap};
+use self::{display::Displays, synth::Keyboard, tap::Tap};
 use crate::{
     action::{Action, AppId, Command, Direction},
     combo::{Combo, Key, Modifiers},
-    event::{Context, Effect, Event, Verdict},
+    event::{Context, Effect, Event, System, Verdict},
     platform::{Input, Output},
 };
 
@@ -59,33 +59,35 @@ const SYSTEM_DEFINED: CGEventType = CGEventType(14);
 /// application launches from NSWorkspace.
 pub struct Session;
 
-/// The front application and the system scroll direction.
-pub struct Workspace {
-    natural_scroll: bool,
-}
+/// Running applications, through NSWorkspace.
+pub struct Apps;
 
 /// Applies effects: actions in order on one serial queue, brightness on another.
 pub struct Desktop {
     actions: DispatchRetained<DispatchQueue>,
-    display: Display,
+    displays: Displays,
 }
 
 impl Input for Session {
-    type Context = Workspace;
+    type Context = Apps;
     type Error = Error;
 
-    fn run(
-        self,
-        handle: impl Fn(Event, &Workspace) -> Verdict + 'static,
-    ) -> Result<Infallible, Error> {
+    fn system(&self) -> System {
+        let defaults = NSUserDefaults::standardUserDefaults();
+        let key = NSString::from_str("com.apple.swipescrolldirection");
+        System {
+            natural_scroll: defaults.objectForKey(&key).is_none() || defaults.boolForKey(&key),
+        }
+    }
+
+    fn run(self, handle: impl Fn(Event, &Apps) -> Verdict + 'static) -> Result<Infallible, Error> {
         trust();
         let handle = Rc::new(handle);
-        let workspace = Rc::new(Workspace::new());
 
         let _observer = app::on_launch({
-            let (handle, workspace) = (handle.clone(), workspace.clone());
+            let handle = handle.clone();
             move |app| {
-                handle(Event::Launched(app), &workspace);
+                handle(Event::Launched(app), &Apps);
             }
         });
         let _tap = Tap::new(
@@ -101,7 +103,7 @@ impl Input for Session {
                 let Some(input) = read(kind, event) else {
                     return true;
                 };
-                match handle(input, &workspace) {
+                match handle(input, &Apps) {
                     Verdict::Pass => true,
                     Verdict::Drop => false,
                     Verdict::Reverse => {
@@ -117,23 +119,9 @@ impl Input for Session {
     }
 }
 
-impl Workspace {
-    fn new() -> Self {
-        let defaults = NSUserDefaults::standardUserDefaults();
-        let key = NSString::from_str("com.apple.swipescrolldirection");
-        Self {
-            natural_scroll: defaults.objectForKey(&key).is_none() || defaults.boolForKey(&key),
-        }
-    }
-}
-
-impl Context for Workspace {
+impl Context for Apps {
     fn front(&self) -> Option<AppId> {
         app::front()
-    }
-
-    fn natural_scroll(&self) -> bool {
-        self.natural_scroll
     }
 }
 
@@ -141,7 +129,7 @@ impl Desktop {
     pub fn new() -> Result<Self, Error> {
         Ok(Self {
             actions: DispatchQueue::new("accessibility.actions", DispatchQueueAttr::SERIAL),
-            display: Display::new()?,
+            displays: Displays::new()?,
         })
     }
 }
@@ -151,8 +139,8 @@ impl Output for Desktop {
         match effect {
             Effect::Run { command, subject } => self
                 .actions
-                .exec_async(move || autoreleasepool(|_| run(&command, subject.as_ref()))),
-            Effect::SyncBrightness => self.display.sync(),
+                .exec_async(move || autoreleasepool(|_| execute(&command, subject.as_ref()))),
+            Effect::SyncBrightness => self.displays.sync(),
         }
     }
 }
@@ -175,7 +163,7 @@ fn trust() {
 fn read(kind: CGEventType, event: &CGEvent) -> Option<Event> {
     let field = |field| CGEvent::integer_value_field(Some(event), field);
     match kind {
-        CGEventType::KeyDown => Some(Event::Key {
+        CGEventType::KeyDown => Some(Event::Press {
             combo: Combo {
                 modifiers: keymap::modifiers(CGEvent::flags(Some(event))),
                 key: keymap::key(u16::try_from(field(CGEventField::KeyboardEventKeycode)).ok()?)?,
@@ -185,7 +173,7 @@ fn read(kind: CGEventType, event: &CGEvent) -> Option<Event> {
         CGEventType::ScrollWheel => Some(Event::Scroll {
             continuous: field(CGEventField::ScrollWheelEventIsContinuous) != 0,
         }),
-        SYSTEM_DEFINED => is_brightness_key(event).then_some(Event::Brightness),
+        SYSTEM_DEFINED => is_brightness_key(event).then_some(Event::BrightnessKey),
         _ => None,
     }
 }
@@ -224,7 +212,7 @@ fn reverse_scroll(event: &CGEvent) {
 }
 
 /// Runs each action of `command`, logging those that fail.
-fn run(command: &Command, subject: Option<&AppId>) {
+fn execute(command: &Command, subject: Option<&AppId>) {
     let keyboard = match Keyboard::new() {
         Ok(keyboard) => keyboard,
         Err(error) => return tracing::warn!(%error, "creating a keyboard"),
@@ -245,7 +233,7 @@ fn perform(keyboard: &Keyboard, action: &Action, subject: Option<&AppId>) -> Res
             thread::spawn(move || child.wait());
             Ok(())
         }
-        Action::Key(combo) => keyboard.press(*combo),
+        Action::Press(combo) => keyboard.press(*combo),
         Action::Type(text) => keyboard.type_text(text),
         Action::Focus(app) => app::focus(app),
         Action::Kill => app::kill(subject.ok_or(Error::Unavailable("the front application"))?),
