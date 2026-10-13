@@ -7,15 +7,13 @@ mod synth;
 mod tap;
 mod window;
 
-use std::{convert::Infallible, process, rc::Rc, thread, time::Duration};
+use std::{convert::Infallible, process, rc::Rc, thread};
 
 use dispatch2::{DispatchQueue, DispatchQueueAttr, DispatchRetained};
 use keycode::KeyMappingCode;
 use objc2::rc::autoreleasepool;
 use objc2_app_kit::{NSEvent, NSEventType};
-use objc2_application_services::{
-    AXIsProcessTrusted, AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt,
-};
+use objc2_application_services::{AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt};
 use objc2_core_foundation::{CFBoolean, CFDictionary, CFRunLoop};
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventType};
 use objc2_foundation::{NSString, NSUserDefaults};
@@ -30,7 +28,9 @@ use crate::{
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("creating the event tap failed; grant Accessibility permission")]
+    #[error("Accessibility permission is missing; grant it, then restart")]
+    Untrusted,
+    #[error("creating the event tap failed")]
     Tap,
     #[error("the run loop ended")]
     RunLoopEnded,
@@ -81,7 +81,7 @@ impl Input for Session {
     }
 
     fn run(self, handle: impl Fn(Event, &Apps) -> Verdict + 'static) -> Result<Infallible, Error> {
-        trust();
+        trust()?;
         let handle = Rc::new(handle);
 
         let _observer = app::on_launch({
@@ -114,6 +114,7 @@ impl Input for Session {
             },
         )
         .ok_or(Error::Tap)?;
+        tracing::info!("running");
         CFRunLoop::run();
         Err(Error::RunLoopEnded)
     }
@@ -145,17 +146,17 @@ impl Output for Desktop {
     }
 }
 
-/// Prompts for Accessibility permission and waits until it is granted.
-fn trust() {
+/// Prompts for Accessibility permission when the process lacks it.
+/// A process sees a grant only after it restarts, so an untrusted process prompts and exits.
+fn trust() -> Result<(), Error> {
     let prompt = CFDictionary::from_slices(
         &[unsafe { kAXTrustedCheckOptionPrompt }],
         &[CFBoolean::new(true)],
     );
-    if !unsafe { AXIsProcessTrustedWithOptions(Some(prompt.as_opaque())) } {
-        tracing::info!("waiting for Accessibility permission");
-        while !unsafe { AXIsProcessTrusted() } {
-            thread::sleep(Duration::from_secs(2));
-        }
+    if unsafe { AXIsProcessTrustedWithOptions(Some(prompt.as_opaque())) } {
+        Ok(())
+    } else {
+        Err(Error::Untrusted)
     }
 }
 
