@@ -16,6 +16,12 @@ pub struct Certificate {
     pub name: String,
 }
 
+/// Lets Apple's code-signing tools use the certificate's key without asking each time; `security`
+/// asks for the login keychain's password once.
+pub struct KeyAccess {
+    pub name: String,
+}
+
 /// Runs each step that is not yet done, reporting each.
 pub fn setup(steps: &[&dyn Step]) -> Result<(), Error> {
     for step in steps {
@@ -86,6 +92,31 @@ impl Step for Certificate {
             .args(["-p", "codeSign", "-k"])
             .arg(keychain())
             .arg(&certificate))
+    }
+}
+
+impl fmt::Display for KeyAccess {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "silent signing with \"{}\"", self.name)
+    }
+}
+
+impl Step for KeyAccess {
+    /// A key's partition list is unreadable without the password, so the step always runs.
+    fn is_done(&self) -> Result<bool, Error> {
+        Ok(false)
+    }
+
+    fn run(&self) -> Result<(), Error> {
+        run(Command::new("/usr/bin/security")
+            .args([
+                "set-key-partition-list",
+                "-S",
+                "apple-tool:,apple:,codesign:",
+                "-s",
+            ])
+            .args(["-l", &self.name])
+            .arg(keychain()))
     }
 }
 

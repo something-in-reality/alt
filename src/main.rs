@@ -38,7 +38,8 @@ enum Commands {
     Status,
     /// Streams the running app's log: each decided event, action and error.
     Log,
-    /// Sets up this machine once: a code-signing certificate that signs the app.
+    /// Sets up this machine once: a code-signing certificate that signs the app, usable without
+    /// prompts.
     Setup {
         /// The certificate's name, which the home-manager module's `certificate` names too.
         #[arg(long)]
@@ -85,7 +86,12 @@ fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Log) => return Err(macos::log().into()),
         Some(Commands::Setup { certificate }) => {
-            setup::setup(&[&setup::Certificate { name: certificate }])?;
+            setup::setup(&[
+                &setup::Certificate {
+                    name: certificate.clone(),
+                },
+                &setup::KeyAccess { name: certificate },
+            ])?;
         }
         Some(Commands::Completions { shell }) => {
             clap_complete::generate(

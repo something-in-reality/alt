@@ -1,7 +1,7 @@
 # home-manager module: the accessibility app as a launchd agent at login, reading
 # $XDG_CONFIG_HOME/accessibility/config.toml. Activation copies the app to ~/Applications and signs
 # it with `certificate`, so its Accessibility permission survives rebuilds; `accessibility setup`
-# creates the certificate. The agent opens the app as an app; it logs to the unified log.
+# creates the certificate. The app logs to the unified log.
 {
   config,
   lib,
@@ -67,19 +67,15 @@ in
       source = service.configFile;
     };
 
+    # The agent runs the app's executable, outside the store, so System Settings names it after
+    # the app.
     launchd.agents.accessibility = {
       enable = true;
+      waitForNixStore = false;
       config = {
-        # open -W returns when the app quits, so launchd keeps the app alive.
-        ProgramArguments = [
-          "/usr/bin/open"
-          "-W"
-          "-a"
-          bundle
-          "--env"
-          "PATH=${lib.makeBinPath service.path}:/usr/bin:/bin"
-        ];
+        ProgramArguments = [ "${bundle}/Contents/MacOS/accessibility" ];
         AssociatedBundleIdentifiers = identifier;
+        EnvironmentVariables.PATH = lib.makeBinPath service.path + ":/usr/bin:/bin";
         RunAtLoad = true;
         KeepAlive = true;
         ProcessType = "Interactive";
