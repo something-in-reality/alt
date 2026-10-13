@@ -1,20 +1,27 @@
-use std::{io::IsTerminal, path::PathBuf, sync::Arc};
+use std::{
+    io::{self, IsTerminal},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use accessibility::{
     config::Config,
-    event::{Context, Verdict},
-    macos::{self, Desktop, Session, setup},
-    platform::{self, Input},
+    macos::{self, Desktop, Session, setup, status::Status},
+    platform,
     watch::watch,
 };
 use anyhow::Context as _;
 use arc_swap::ArcSwap;
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::Shell;
 use etcetera::BaseStrategy;
 use tracing_oslog::OsLogger;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Keyboard, pointer, window and display behaviour outside the terminal.
+///
+/// Without a command, applies the configuration in the foreground and reloads it when it changes;
+/// launchd runs it so at login.
 #[derive(Parser)]
 #[command(version)]
 struct Cli {
@@ -25,21 +32,21 @@ struct Cli {
     command: Option<Commands>,
 }
 
-#[derive(Subcommand, Default)]
+#[derive(Subcommand)]
 enum Commands {
-    /// Applies the configuration, reloading it when it changes.
-    #[default]
-    Run,
-    /// Checks the configuration.
-    Check,
-    /// Prints each event and the front application as they happen, without affecting them.
-    Events,
+    /// Checks the configuration and reports the running app and its signature.
+    Status,
+    /// Streams the running app's log: each decided event, action and error.
+    Log,
     /// Sets up this machine once: a code-signing certificate that signs the app.
     Setup {
         /// The certificate's name, which the home-manager module's `certificate` names too.
         #[arg(long)]
         certificate: String,
     },
+    /// Prints shell completions.
+    #[command(hide = true)]
+    Completions { shell: Shell },
     /// Exits successfully when this process may observe and post input.
     #[command(hide = true)]
     Trusted,
@@ -51,9 +58,9 @@ fn main() -> anyhow::Result<()> {
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .with(OsLogger::new(macos::IDENTIFIER, "default"))
         .with(
-            std::io::stderr()
+            io::stderr()
                 .is_terminal()
-                .then(|| tracing_subscriber::fmt::layer().with_writer(std::io::stderr)),
+                .then(|| tracing_subscriber::fmt::layer().with_writer(io::stderr)),
         )
         .init();
     let cli = Cli::parse();
@@ -63,26 +70,32 @@ fn main() -> anyhow::Result<()> {
             .config_dir()
             .join("accessibility/config.toml"),
     };
-    match cli.command.unwrap_or_default() {
-        Commands::Check => {
-            Config::load(&path)?;
-        }
-        Commands::Run => {
+    match cli.command {
+        None => {
             let config = Arc::new(ArcSwap::from_pointee(Config::load(&path)?));
             let _watcher = watch(path, config.clone()).context("watching the configuration")?;
-            platform::run(Session::default(), Desktop::new()?, config)?;
+            platform::run(Session, Desktop::new()?, config)?;
         }
-        Commands::Events => {
-            Session::listen_only().run(|event, cx| {
-                let front = cx.front().map(|app| app.to_string()).unwrap_or_default();
-                println!("{event}\t{front}");
-                Verdict::Pass
-            })?;
+        Some(Commands::Status) => {
+            match Config::load(&path) {
+                Ok(_) => println!("config:    {}", path.display()),
+                Err(error) => println!("config:    {}: {error}", path.display()),
+            }
+            println!("{}", Status::read());
         }
-        Commands::Setup { certificate } => {
+        Some(Commands::Log) => return Err(macos::log().into()),
+        Some(Commands::Setup { certificate }) => {
             setup::setup(&[&setup::Certificate { name: certificate }])?;
         }
-        Commands::Trusted => {
+        Some(Commands::Completions { shell }) => {
+            clap_complete::generate(
+                shell,
+                &mut Cli::command(),
+                "accessibility",
+                &mut io::stdout(),
+            );
+        }
+        Some(Commands::Trusted) => {
             if !macos::trusted() {
                 std::process::exit(1);
             }

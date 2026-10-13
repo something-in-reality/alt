@@ -36,7 +36,10 @@ pub fn run<I: Input>(
 ) -> Result<Infallible, I::Error> {
     let system = input.system();
     input.run(move |event, cx| {
-        let decision = config.load().decide(event, &system, cx);
+        let decision = config.load().decide(event.clone(), &system, cx);
+        if decision.verdict != Verdict::Pass || decision.effect.is_some() {
+            tracing::debug!(%event, verdict = ?decision.verdict, effect = ?decision.effect);
+        }
         if let Some(effect) = decision.effect {
             output.apply(effect);
         }

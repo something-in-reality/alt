@@ -78,8 +78,6 @@ in
           bundle
           "--env"
           "PATH=${lib.makeBinPath service.path}:/usr/bin:/bin"
-          "--args"
-          "run"
         ];
         AssociatedBundleIdentifiers = identifier;
         RunAtLoad = true;

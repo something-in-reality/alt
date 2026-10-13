@@ -5,7 +5,7 @@ use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType};
 use objc2_core_foundation::{CFRetained, CGPoint};
 use objc2_core_graphics::{
     CGEvent, CGEventField, CGEventFlags, CGEventSource, CGEventSourceStateID, CGEventTapLocation,
-    CGEventType,
+    CGEventType, CGScrollEventUnit,
 };
 
 use super::{Error, keymap};
@@ -114,6 +114,17 @@ fn utf16_chunks(text: &str) -> Vec<Vec<u16>> {
             }
             chunks
         })
+}
+
+/// Posts `event`'s discrete scroll reversed on both axes, in lines; apps read the scroll from
+/// the posted event, which an edited event does not change. Returns whether it posted.
+pub fn reverse_scroll(event: &CGEvent) -> bool {
+    let lines = |field| -CGEvent::integer_value_field(Some(event), field) as i32;
+    let vertical = lines(CGEventField::ScrollWheelEventDeltaAxis1);
+    let horizontal = lines(CGEventField::ScrollWheelEventDeltaAxis2);
+    CGEvent::new_scroll_wheel_event2(None, CGScrollEventUnit::Line, 2, vertical, horizontal, 0)
+        .map(|reversed| post(&reversed))
+        .is_some()
 }
 
 fn post(event: &CGEvent) {

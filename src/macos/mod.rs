@@ -4,6 +4,7 @@ mod app;
 mod display;
 mod keymap;
 pub mod setup;
+pub mod status;
 mod synth;
 mod tap;
 mod window;
@@ -31,7 +32,7 @@ use objc2_application_services::{
     AXIsProcessTrusted, AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt,
 };
 use objc2_core_foundation::{CFBoolean, CFDictionary, CFRunLoop};
-use objc2_core_graphics::{CGEvent, CGEventField, CGEventTapOptions, CGEventType};
+use objc2_core_graphics::{CGEvent, CGEventField, CGEventType};
 use objc2_foundation::{NSString, NSUserDefaults};
 
 use self::{display::Displays, synth::Keyboard, tap::Tap};
@@ -78,10 +79,7 @@ pub const IDENTIFIER: &str = "something-in-reality.accessibility";
 const SYSTEM_DEFINED: CGEventType = CGEventType(14);
 
 /// The login session's keys, scrolling and brightness keys, from an event tap.
-#[derive(Default)]
-pub struct Session {
-    listen_only: bool,
-}
+pub struct Session;
 
 /// Running applications; the front one is kept current by NSWorkspace's notifications, so a
 /// decision never waits on another process.
@@ -116,18 +114,12 @@ impl Input for Session {
             let apps = apps.clone();
             move |front| *apps.front.borrow_mut() = Some(front)
         });
-        let options = if self.listen_only {
-            CGEventTapOptions::ListenOnly
-        } else {
-            CGEventTapOptions::Default
-        };
         let _tap = Tap::new(
             &[
                 CGEventType::KeyDown,
                 CGEventType::ScrollWheel,
                 SYSTEM_DEFINED,
             ],
-            options,
             move |kind, event| {
                 if synth::is_synthetic(event) {
                     return true;
@@ -138,27 +130,15 @@ impl Input for Session {
                 match handle(input, &apps) {
                     Verdict::Pass => true,
                     Verdict::Drop => false,
-                    Verdict::Reverse => {
-                        reverse_scroll(event);
-                        true
-                    }
+                    Verdict::Reverse => !synth::reverse_scroll(event),
                 }
             },
         )
         .ok_or(Error::Tap)?;
-        if !self.listen_only {
-            watchdog();
-        }
+        watchdog();
         tracing::info!("running");
         CFRunLoop::run();
         Err(Error::RunLoopEnded)
-    }
-}
-
-impl Session {
-    /// A session whose tap only observes, which never holds input.
-    pub fn listen_only() -> Self {
-        Self { listen_only: true }
     }
 }
 
@@ -207,6 +187,22 @@ fn watchdog() {
             }
         }
     });
+}
+
+/// Streams this app's log, debug messages included, replacing this process.
+pub fn log() -> Error {
+    process::Command::new("/usr/bin/log")
+        .args([
+            "stream",
+            "--level",
+            "debug",
+            "--style",
+            "compact",
+            "--predicate",
+        ])
+        .arg(format!("subsystem == \"{IDENTIFIER}\""))
+        .exec()
+        .into()
 }
 
 /// Whether this process may observe and post input.
@@ -272,26 +268,6 @@ fn is_brightness_key(event: &CGEvent) -> bool {
             && matches!(data >> 16, BRIGHTNESS_UP | BRIGHTNESS_DOWN)
             && (data >> 8) & 0xff == 0xa
     })
-}
-
-/// Reverses both axes of a scroll event.
-fn reverse_scroll(event: &CGEvent) {
-    for field in [
-        CGEventField::ScrollWheelEventDeltaAxis1,
-        CGEventField::ScrollWheelEventDeltaAxis2,
-        CGEventField::ScrollWheelEventPointDeltaAxis1,
-        CGEventField::ScrollWheelEventPointDeltaAxis2,
-    ] {
-        let delta = CGEvent::integer_value_field(Some(event), field);
-        CGEvent::set_integer_value_field(Some(event), field, -delta);
-    }
-    for field in [
-        CGEventField::ScrollWheelEventFixedPtDeltaAxis1,
-        CGEventField::ScrollWheelEventFixedPtDeltaAxis2,
-    ] {
-        let delta = CGEvent::double_value_field(Some(event), field);
-        CGEvent::set_double_value_field(Some(event), field, -delta);
-    }
 }
 
 /// Runs each action of `command`, logging those that fail.

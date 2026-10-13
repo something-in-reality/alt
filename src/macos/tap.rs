@@ -30,10 +30,8 @@ pub struct Tap {
 
 impl Tap {
     /// Installs a tap for `events` on the current run loop, or `None` without permission.
-    /// A listen-only tap never holds input; its handler's result is ignored.
     pub fn new(
         events: &[CGEventType],
-        options: CGEventTapOptions,
         handler: impl Fn(CGEventType, &CGEvent) -> bool + 'static,
     ) -> Option<Self> {
         let state = Box::into_raw(Box::new(State {
@@ -45,7 +43,7 @@ impl Tap {
             CGEvent::tap_create(
                 CGEventTapLocation::SessionEventTap,
                 CGEventTapPlacement::HeadInsertEventTap,
-                options,
+                CGEventTapOptions::Default,
                 mask,
                 Some(callback),
                 state.cast(),

@@ -10,6 +10,7 @@ anyhow = "1"
 arc-swap = "1.9"
 bitflags = "2.9"
 clap = { version = "4.6", features = ["derive"] }
+clap_complete = "4.6.11"
 etcetera = "0.10"
 keycode = "1"
 notify = "8.2"
