@@ -78,14 +78,14 @@ mod tests {
     #[test]
     fn keys_round_trip() {
         for name in [
-            "KeyT",
-            "Home",
-            "PageUp",
-            "Backquote",
-            "F3",
-            "Enter",
-            "ArrowLeft",
-            "Dictation",
+            "t",
+            "home",
+            "page_up",
+            "backquote",
+            "f3",
+            "enter",
+            "arrow_left",
+            "dictation",
         ] {
             let key: Key = name.parse().unwrap();
             assert_eq!(code(key).and_then(super::key), Some(key), "{name}");

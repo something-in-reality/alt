@@ -6,7 +6,7 @@ use std::{
 
 use accessibility::{
     config::Config,
-    macos::{self, Desktop, Session, setup, status::Status},
+    macos::{self, Dispatcher, Session, setup, status::Status},
     platform,
     watch::watch,
 };
@@ -75,7 +75,7 @@ fn main() -> anyhow::Result<()> {
         None => {
             let config = Arc::new(ArcSwap::from_pointee(Config::load(&path)?));
             let _watcher = watch(path, config.clone()).context("watching the configuration")?;
-            platform::run(Session, Desktop::new()?, config)?;
+            platform::run(Session, Dispatcher::new()?, config)?;
         }
         Some(Commands::Status) => {
             match Config::load(&path) {

@@ -1,10 +1,12 @@
-//! The boundary to the operating system: events come from an `Input`, effects go to an `Output`.
+//! The boundary to the operating system: events come from an `Input`, effects go to an `Output`,
+//! and actions run on a `Desktop`.
 
-use std::{convert::Infallible, error::Error, sync::Arc};
+use std::{convert::Infallible, error::Error, io, sync::Arc};
 
 use arc_swap::ArcSwap;
 
 use crate::{
+    action::{App, Bluetooth, Brightness, Keyboard, Media, Window},
     config::Config,
     event::{Context, Effect, Event, System, Verdict},
 };
@@ -21,6 +23,18 @@ pub trait Input {
         self,
         handle: impl Fn(Event, &Self::Context) -> Verdict + 'static,
     ) -> Result<Infallible, Self::Error>;
+}
+
+/// What a platform does for each namespace of actions; `Action::perform` dispatches to it.
+pub trait Desktop {
+    type Error: Error + From<io::Error> + Send + Sync + 'static;
+
+    fn keyboard(&self, action: &Keyboard) -> Result<(), Self::Error>;
+    fn app(&self, action: &App) -> Result<(), Self::Error>;
+    fn window(&self, action: Window) -> Result<(), Self::Error>;
+    fn bluetooth(&self, action: &Bluetooth) -> Result<(), Self::Error>;
+    fn media(&self, action: Media) -> Result<(), Self::Error>;
+    fn brightness(&self, action: Brightness) -> Result<(), Self::Error>;
 }
 
 /// A sink for effects; it applies them asynchronously, in order, and logs failures.

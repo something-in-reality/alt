@@ -6,7 +6,7 @@ use objc2_application_services::{AXError, AXUIElement, AXValue, AXValueType};
 use objc2_core_foundation::{CFRetained, CFString, CFType, CGSize};
 
 use super::Error;
-use crate::action::{Dimension, Px, Resize};
+use crate::action::{Px, Window};
 
 fn attribute(element: &AXUIElement, name: &str) -> Result<CFRetained<CFType>, Error> {
     let mut value = ptr::null();
@@ -30,8 +30,8 @@ fn focused_window() -> Result<CFRetained<AXUIElement>, Error> {
         .map_err(|_| Error::Unavailable("the focused window"))
 }
 
-/// Grows or shrinks the focused window; in split view this moves the divider.
-pub fn resize(resize: Resize) -> Result<(), Error> {
+/// Resizes the focused window by a signed length; in split view this moves the divider.
+pub fn resize(resize: Window) -> Result<(), Error> {
     let window = focused_window()?;
     let size = attribute(&window, "AXSize")?
         .downcast::<AXValue>()
@@ -40,17 +40,13 @@ pub fn resize(resize: Resize) -> Result<(), Error> {
     if !unsafe { size.value(AXValueType::CGSize, NonNull::from(&mut current).cast()) } {
         return Err(Error::Unavailable("the window size"));
     }
-    let (dimension, sign) = match resize {
-        Resize::Grow(dimension) => (dimension, 1.0),
-        Resize::Shrink(dimension) => (dimension, -1.0),
-    };
-    let target = match dimension {
-        Dimension::Width(Px(px)) => CGSize {
-            width: current.width + sign * f64::from(px),
+    let target = match resize {
+        Window::Width(Px(px)) => CGSize {
+            width: current.width + f64::from(px),
             ..current
         },
-        Dimension::Height(Px(px)) => CGSize {
-            height: current.height + sign * f64::from(px),
+        Window::Height(Px(px)) => CGSize {
+            height: current.height + f64::from(px),
             ..current
         },
     };

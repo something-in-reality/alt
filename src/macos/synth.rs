@@ -18,24 +18,52 @@ pub fn is_synthetic(event: &CGEvent) -> bool {
     CGEvent::integer_value_field(Some(event), CGEventField::EventSourceUserData) == MARKER
 }
 
-/// The media key types of NX_SYSDEFINED events.
-fn media(key: Key) -> Option<isize> {
-    match key {
-        Key::Code(KeyMappingCode::AudioVolumeUp) => Some(0),
-        Key::Code(KeyMappingCode::AudioVolumeDown) => Some(1),
-        Key::Code(KeyMappingCode::AudioVolumeMute) => Some(7),
-        Key::Code(KeyMappingCode::MediaPlayPause) => Some(16),
-        Key::Code(KeyMappingCode::MediaTrackNext) => Some(17),
-        Key::Code(KeyMappingCode::MediaTrackPrevious) => Some(18),
-        _ => None,
+/// A key that NX_SYSDEFINED events carry, by its type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SystemKey {
+    VolumeUp = 0,
+    VolumeDown = 1,
+    BrightnessUp = 2,
+    BrightnessDown = 3,
+    Mute = 7,
+    PlayPause = 16,
+    Next = 17,
+    Previous = 18,
+}
+
+impl SystemKey {
+    /// Presses the key: down, then up.
+    pub fn press(self) -> Result<(), Error> {
+        [0xa, 0xb]
+            .into_iter()
+            .try_for_each(|state| post_system_key(self as isize, state))
     }
 }
 
-pub struct Keyboard {
+impl TryFrom<Key> for SystemKey {
+    type Error = Key;
+
+    fn try_from(key: Key) -> Result<Self, Key> {
+        match key {
+            Key::Code(KeyMappingCode::AudioVolumeUp) => Ok(Self::VolumeUp),
+            Key::Code(KeyMappingCode::AudioVolumeDown) => Ok(Self::VolumeDown),
+            Key::Code(KeyMappingCode::AudioVolumeMute) => Ok(Self::Mute),
+            Key::Code(KeyMappingCode::MediaPlayPause) => Ok(Self::PlayPause),
+            Key::Code(KeyMappingCode::MediaTrackNext) => Ok(Self::Next),
+            Key::Code(KeyMappingCode::MediaTrackPrevious) => Ok(Self::Previous),
+            Key::Code(KeyMappingCode::BrightnessUp) => Ok(Self::BrightnessUp),
+            Key::Code(KeyMappingCode::BrightnessDown) => Ok(Self::BrightnessDown),
+            key => Err(key),
+        }
+    }
+}
+
+/// A private event source, which posts keys and text.
+pub struct Source {
     source: CFRetained<CGEventSource>,
 }
 
-impl Keyboard {
+impl Source {
     pub fn new() -> Result<Self, Error> {
         CGEventSource::new(CGEventSourceStateID::Private)
             .map(|source| Self { source })
@@ -44,10 +72,8 @@ impl Keyboard {
 
     /// Presses `combo` as a keyboard does: modifiers down, the key down and up, modifiers up.
     pub fn press(&self, combo: Combo) -> Result<(), Error> {
-        if let Some(kind) = media(combo.key) {
-            return [0xa, 0xb]
-                .into_iter()
-                .try_for_each(|state| post_media(kind, state));
+        if let Ok(key) = SystemKey::try_from(combo.key) {
+            return key.press();
         }
         let code = keymap::code(combo.key).ok_or(Error::Unmapped(combo.key))?;
         let modifiers: Vec<_> = keymap::modifier_keys(combo.modifiers).collect();
@@ -132,8 +158,9 @@ fn post(event: &CGEvent) {
     CGEvent::post(CGEventTapLocation::HIDEventTap, Some(event));
 }
 
-/// Posts a media key `kind` going down (`0xa`) or up (`0xb`).
-fn post_media(kind: isize, state: isize) -> Result<(), Error> {
+/// Posts a system key of type `kind` going down (`0xa`) or up (`0xb`), unmarked: the tap decides
+/// system keys by their type alone, so a posted brightness key syncs displays as a pressed one does.
+fn post_system_key(kind: isize, state: isize) -> Result<(), Error> {
     let event = NSEvent::otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2(
         NSEventType::SystemDefined,
         CGPoint::ZERO,
@@ -146,8 +173,8 @@ fn post_media(kind: isize, state: isize) -> Result<(), Error> {
         -1,
     )
     .and_then(|event| event.CGEvent())
-    .ok_or(Error::Unavailable("a media key event"))?;
-    post(&event);
+    .ok_or(Error::Unavailable("a system key event"))?;
+    CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&event));
     Ok(())
 }
 

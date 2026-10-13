@@ -169,38 +169,37 @@ mod tests {
     #[test]
     fn every_trigger_runs_its_command_in_its_application() {
         let triggers = [
-            (GHOSTTY, "F1", r#"{ key = "Dictation" }"#),
-            (GHOSTTY, "F3", r#"{ workspace = "prev" }"#),
-            (GHOSTTY, "F4", r#"{ exec = "open -a 'Mission Control'" }"#),
-            (FIREFOX, "F5", r#"{ workspace = "next" }"#),
-            (GHOSTTY, "F6", r#"{ key = "AudioVolumeMute" }"#),
-            (GHOSTTY, "ctrl+KeyT", r#"{ type = "✓" }"#),
-            (GHOSTTY, "Home", r#"{ focus = "org.nixos.firefox" }"#),
-            (FIREFOX, "End", r#"{ focus = "com.mitchellh.ghostty" }"#),
+            (GHOSTTY, "f1", r#"{ keyboard.press = "dictation" }"#),
+            (GHOSTTY, "f4", r#"{ exec = "open -a 'Mission Control'" }"#),
+            (GHOSTTY, "f6", r#""media.mute""#),
+            (GHOSTTY, "f7", r#""media.volume_down""#),
+            (GHOSTTY, "f8", r#""media.volume_up""#),
+            (FIREFOX, "f9", r#""brightness.down""#),
+            (FIREFOX, "f10", r#""brightness.up""#),
+            (GHOSTTY, "ctrl+t", r#"{ keyboard.type = "✓" }"#),
+            (GHOSTTY, "home", r#"{ app.focus = "org.nixos.firefox" }"#),
+            (FIREFOX, "end", r#"{ app.focus = "com.mitchellh.ghostty" }"#),
             (
                 GHOSTTY,
-                "super+Home",
-                r#"{ resize = { grow = { width = "100px" } } }"#,
+                "alt+b",
+                r#"{ bluetooth.toggle = "f8-8f-07-40-54-34" }"#,
             ),
-            (
-                GHOSTTY,
-                "super+End",
-                r#"{ resize = { shrink = { width = "100px" } } }"#,
-            ),
-            (
-                FIREFOX,
-                "super+Home",
-                r#"{ resize = { shrink = { width = "100px" } } }"#,
-            ),
+            (GHOSTTY, "super+home", r#"{ window.width = "+100px" }"#),
+            (GHOSTTY, "super+end", r#"{ window.width = "-100px" }"#),
+            (FIREFOX, "super+home", r#"{ window.width = "-100px" }"#),
+            (FIREFOX, "super+end", r#"{ window.width = "+100px" }"#),
             (
                 FIREFOX,
-                "super+End",
-                r#"{ resize = { grow = { width = "100px" } } }"#,
+                "page_up",
+                r#"{ keyboard.press = "ctrl+shift+tab" }"#,
             ),
-            (FIREFOX, "PageUp", r#"{ key = "ctrl+shift+Tab" }"#),
-            (FIREFOX, "PageDown", r#"{ key = "ctrl+Tab" }"#),
-            (FIREFOX, "Backquote", r#"{ key = "ctrl+KeyZ" }"#),
-            (FIREFOX, "ctrl+Backquote", r#"{ key = "ctrl+KeyZ" }"#),
+            (FIREFOX, "page_down", r#"{ keyboard.press = "ctrl+tab" }"#),
+            (FIREFOX, "backquote", r#"{ keyboard.press = "ctrl+z" }"#),
+            (
+                FIREFOX,
+                "ctrl+backquote",
+                r#"{ keyboard.press = "ctrl+z" }"#,
+            ),
         ];
         for (front, combo, expected) in triggers {
             let decision = press(front, combo, false);
@@ -214,22 +213,22 @@ mod tests {
 
     #[test]
     fn held_keys_repeat_only_incremental_commands() {
-        let resize = press(GHOSTTY, "super+Home", true);
+        let resize = press(GHOSTTY, "super+home", true);
         assert!(matches!(resize.effect, Some(Effect::Run(_))));
         assert_eq!(
-            press(GHOSTTY, "Home", true),
+            press(GHOSTTY, "home", true),
             Decision::verdict(Verdict::Drop)
         );
         assert_eq!(
-            press(GHOSTTY, "alt+KeyB", true),
+            press(GHOSTTY, "alt+b", true),
             Decision::verdict(Verdict::Drop)
         );
     }
 
     #[test]
     fn unbound_keys_pass() {
-        assert_eq!(press(GHOSTTY, "PageUp", false), Decision::PASS);
-        assert_eq!(press(FIREFOX, "KeyA", false), Decision::PASS);
+        assert_eq!(press(GHOSTTY, "page_up", false), Decision::PASS);
+        assert_eq!(press(FIREFOX, "a", false), Decision::PASS);
     }
 
     #[test]

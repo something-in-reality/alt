@@ -1,6 +1,8 @@
-//! macOS: a session event tap is the `Input`; GCD queues apply the `Output`.
+//! macOS: a session event tap is the `Input`, GCD queues apply the `Output`, and `Mac` performs
+//! actions.
 
 mod app;
+mod bluetooth;
 mod display;
 mod keymap;
 pub mod setup;
@@ -25,7 +27,6 @@ use std::{
 };
 
 use dispatch2::{DispatchQueue, DispatchQueueAttr, DispatchRetained};
-use keycode::KeyMappingCode;
 use objc2::rc::autoreleasepool;
 use objc2_app_kit::{NSEvent, NSEventType};
 use objc2_application_services::{
@@ -35,12 +36,16 @@ use objc2_core_foundation::{CFBoolean, CFDictionary, CFRunLoop};
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventType};
 use objc2_foundation::{NSString, NSUserDefaults};
 
-use self::{display::Displays, synth::Keyboard, tap::Tap};
+use self::{
+    display::Displays,
+    synth::{Source, SystemKey},
+    tap::Tap,
+};
 use crate::{
-    action::{Action, AppId, Command, Direction},
-    combo::{Combo, Key, Modifiers},
+    action::{self, App, AppId, Command, Device, Keyboard, Media, Window},
+    combo::{Combo, Key},
     event::{Context, Effect, Event, System, Verdict},
-    platform::{Input, Output},
+    platform::{Desktop, Input, Output},
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -55,6 +60,10 @@ pub enum Error {
     Unmapped(Key),
     #[error("could not create {0}")]
     Unavailable(&'static str),
+    #[error("{0} is not paired")]
+    NotPaired(Device),
+    #[error("Bluetooth error {1:#x} with {0}")]
+    Bluetooth(Device, i32),
     #[error("accessibility error {0}")]
     Accessibility(i32),
     #[error("no built-in display")]
@@ -87,8 +96,8 @@ pub struct Apps {
     front: RefCell<Option<AppId>>,
 }
 
-/// Applies effects: actions in order on one serial queue, brightness on another.
-pub struct Desktop {
+/// Applies effects: commands in order on one serial queue, brightness on another.
+pub struct Dispatcher {
     actions: DispatchRetained<DispatchQueue>,
     displays: Displays,
 }
@@ -148,7 +157,12 @@ impl Context for Apps {
     }
 }
 
-impl Desktop {
+/// Performs actions, posting input from a private event source.
+pub struct Mac {
+    source: Source,
+}
+
+impl Dispatcher {
     pub fn new() -> Result<Self, Error> {
         Ok(Self {
             actions: DispatchQueue::new("accessibility.actions", DispatchQueueAttr::SERIAL),
@@ -157,7 +171,7 @@ impl Desktop {
     }
 }
 
-impl Output for Desktop {
+impl Output for Dispatcher {
     fn apply(&self, effect: Effect) {
         match effect {
             Effect::Run(command) => self
@@ -272,36 +286,58 @@ fn is_brightness_key(event: &CGEvent) -> bool {
 
 /// Runs each action of `command`, logging those that fail.
 fn execute(command: &Command) {
-    let keyboard = match Keyboard::new() {
-        Ok(keyboard) => keyboard,
-        Err(error) => return tracing::warn!(%error, "creating a keyboard"),
+    let mac = match Source::new() {
+        Ok(source) => Mac { source },
+        Err(error) => return tracing::warn!(%error, "creating an event source"),
     };
-    for action in command.as_ref() {
-        if let Err(error) = perform(&keyboard, action) {
+    for action in command {
+        if let Err(error) = action.perform(&mac) {
             tracing::warn!(%error, ?action, "performing");
         }
     }
 }
 
-fn perform(keyboard: &Keyboard, action: &Action) -> Result<(), Error> {
-    match action {
-        Action::Exec(command) => {
-            let mut child = process::Command::new("/bin/sh")
-                .args(["-c", command])
-                .spawn()?;
-            thread::spawn(move || child.wait());
-            Ok(())
+impl Desktop for Mac {
+    type Error = Error;
+
+    fn keyboard(&self, action: &Keyboard) -> Result<(), Error> {
+        match action {
+            Keyboard::Press(combo) => self.source.press(*combo),
+            Keyboard::Type(text) => self.source.type_text(text),
         }
-        Action::Press(combo) => keyboard.press(*combo),
-        Action::Type(text) => keyboard.type_text(text),
-        Action::Focus(app) => app::focus(app),
-        Action::Resize(resize) => window::resize(*resize),
-        Action::Workspace(direction) => keyboard.press(Combo {
-            modifiers: Modifiers::CTRL,
-            key: Key::Code(match direction {
-                Direction::Prev => KeyMappingCode::ArrowLeft,
-                Direction::Next => KeyMappingCode::ArrowRight,
-            }),
-        }),
+    }
+
+    fn app(&self, action: &App) -> Result<(), Error> {
+        match action {
+            App::Focus(app) => app::focus(app),
+        }
+    }
+
+    fn window(&self, action: Window) -> Result<(), Error> {
+        window::resize(action)
+    }
+
+    fn bluetooth(&self, action: &action::Bluetooth) -> Result<(), Error> {
+        bluetooth::perform(action)
+    }
+
+    fn media(&self, action: Media) -> Result<(), Error> {
+        match action {
+            Media::Mute => SystemKey::Mute,
+            Media::VolumeUp => SystemKey::VolumeUp,
+            Media::VolumeDown => SystemKey::VolumeDown,
+            Media::PlayPause => SystemKey::PlayPause,
+            Media::Next => SystemKey::Next,
+            Media::Previous => SystemKey::Previous,
+        }
+        .press()
+    }
+
+    fn brightness(&self, action: action::Brightness) -> Result<(), Error> {
+        match action {
+            action::Brightness::Up => SystemKey::BrightnessUp,
+            action::Brightness::Down => SystemKey::BrightnessDown,
+        }
+        .press()
     }
 }

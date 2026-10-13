@@ -20,7 +20,7 @@ use crate::{
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub input: Input,
-    pub brightness: Brightness,
+    pub brightness: BrightnessSync,
     /// Bindings in every application.
     #[serde_as(as = "MapPreventDuplicates<_, _>")]
     pub bindsym: HashMap<Combo, Command>,
@@ -43,7 +43,7 @@ pub struct Pointer {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct Brightness {
+pub struct BrightnessSync {
     /// External displays follow the built-in display's brightness.
     pub sync: bool,
 }
@@ -93,7 +93,7 @@ impl FromStr for Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::action::{Action, Dimension, Direction, Px, Resize};
+    use crate::action::{Action, Keyboard, Px, Window};
 
     const EXAMPLE: &str = include_str!("../config.toml");
 
@@ -114,15 +114,15 @@ mod tests {
     #[test]
     fn front_application_bindings_win() {
         let config: Config = EXAMPLE.parse().unwrap();
-        let grow = vec![Action::Resize(Resize::Grow(Dimension::Width(Px(100))))];
-        let shrink = vec![Action::Resize(Resize::Shrink(Dimension::Width(Px(100))))];
-        assert_eq!(command(&config, None, "super+Home"), Some(grow.clone()));
+        let grow = vec![Action::Window(Window::Width(Px(100)))];
+        let shrink = vec![Action::Window(Window::Width(Px(-100)))];
+        assert_eq!(command(&config, None, "super+home"), Some(grow.clone()));
         assert_eq!(
-            command(&config, Some("com.mitchellh.ghostty"), "super+Home"),
+            command(&config, Some("com.mitchellh.ghostty"), "super+home"),
             Some(grow)
         );
         assert_eq!(
-            command(&config, Some("org.nixos.firefox"), "super+Home"),
+            command(&config, Some("org.nixos.firefox"), "super+home"),
             Some(shrink)
         );
     }
@@ -130,34 +130,34 @@ mod tests {
     #[test]
     fn application_bindings_stay_in_their_application() {
         let config: Config = EXAMPLE.parse().unwrap();
-        assert_eq!(command(&config, None, "PageUp"), None);
+        assert_eq!(command(&config, None, "page_up"), None);
         assert_eq!(
-            command(&config, Some("org.nixos.firefox"), "Backquote"),
-            Some(vec![Action::Press("ctrl+KeyZ".parse().unwrap())])
-        );
-        assert_eq!(
-            command(&config, Some("org.nixos.firefox"), "F3"),
-            Some(vec![Action::Workspace(Direction::Prev)])
+            command(&config, Some("org.nixos.firefox"), "backquote"),
+            Some(vec![Action::Keyboard(Keyboard::Press(
+                "ctrl+z".parse().unwrap()
+            ))])
         );
     }
 
     #[test]
     fn sequences_run_in_order() {
-        let config: Config = "[bindsym]\nF1 = [{ key = \"super+KeyL\" }, { type = \"x\" }]"
-            .parse()
-            .unwrap();
+        let config: Config =
+            "[bindsym]\nf1 = [{ keyboard.press = \"super+l\" }, { keyboard.type = \"x\" }]"
+                .parse()
+                .unwrap();
         assert_eq!(
-            command(&config, None, "F1"),
+            command(&config, None, "f1"),
             Some(vec![
-                Action::Press("super+KeyL".parse().unwrap()),
-                Action::Type("x".to_owned()),
+                Action::Keyboard(Keyboard::Press("super+l".parse().unwrap())),
+                Action::Keyboard(Keyboard::Type("x".to_owned())),
             ])
         );
     }
 
     #[test]
     fn rejects_one_combo_bound_twice() {
-        let config = "[bindsym]\n\"ctrl+shift+Tab\" = { type = \"x\" }\n\"shift+ctrl+Tab\" = { type = \"x\" }";
+        let config =
+            "[bindsym]\n\"ctrl+shift+tab\" = \"media.mute\"\n\"shift+ctrl+tab\" = \"media.mute\"";
         assert!(config.parse::<Config>().is_err());
     }
 
