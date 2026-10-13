@@ -1,7 +1,7 @@
 # home-manager module: the accessibility app as a launchd agent at login, reading
 # $XDG_CONFIG_HOME/accessibility/config.toml. Activation copies the app to ~/Applications and signs
-# it with `certificate`, so its Accessibility permission survives rebuilds; `nix run
-# <this flake>#certificate` creates one.
+# it with `certificate`, so its Accessibility permission survives rebuilds; the flake's `setup`
+# creates the certificate.
 {
   config,
   lib,
@@ -11,7 +11,7 @@
 let
   service = config.services.accessibility;
   bundle = "${config.home.homeDirectory}/Applications/Accessibility.app";
-  identifier = "io.github.something-in-reality.accessibility";
+  identifier = "something-in-reality.accessibility";
 in
 {
   options.services.accessibility = {
@@ -50,8 +50,8 @@ in
       source=${service.package}/Applications/Accessibility.app
       certificate=${lib.escapeShellArg service.certificate}
       if ! /usr/bin/security find-identity -v -p codesigning | grep -qF "\"$certificate\""; then
-        echo "accessibility: no code-signing identity \"$certificate\"; create it with the" \
-          "accessibility flake's certificate app" >&2
+        echo "accessibility: no code-signing identity \"$certificate\"; run the" \
+          "accessibility flake's setup" >&2
       elif [ "$(cat ${bundle}/Contents/source 2>/dev/null)" != "$source" ]; then
         run rm -rf ${bundle}
         run cp -R "$source" ${bundle}
