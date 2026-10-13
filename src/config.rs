@@ -100,10 +100,10 @@ mod tests {
     const EXAMPLE: &str = include_str!("../config.toml");
 
     fn command(config: &Config, front: Option<&str>, combo: &str) -> Option<Vec<Action>> {
-        let front = front.map(|id| AppId(id.to_owned()));
+        let front = front.map(AppId::from);
         config
             .bindsym(front.as_ref(), &combo.parse().unwrap())
-            .map(|command| command.0.clone())
+            .map(|command| command.as_ref().to_vec())
     }
 
     #[test]

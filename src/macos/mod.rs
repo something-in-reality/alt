@@ -1,4 +1,4 @@
-//! macOS: one event tap on the main run loop; actions run in order on a worker thread.
+//! macOS: a session event tap and NSWorkspace are the `Input`; GCD queues apply the `Output`.
 
 mod app;
 mod display;
@@ -7,19 +7,9 @@ mod synth;
 mod tap;
 mod window;
 
-use std::{
-    convert::Infallible,
-    process,
-    sync::{
-        Arc,
-        mpsc::{self, Receiver, Sender},
-    },
-    thread,
-    time::Duration,
-};
+use std::{convert::Infallible, process, rc::Rc, thread, time::Duration};
 
-use anyhow::Context as _;
-use arc_swap::ArcSwap;
+use dispatch2::{DispatchQueue, DispatchQueueAttr, DispatchRetained};
 use keycode::KeyMappingCode;
 use objc2::rc::autoreleasepool;
 use objc2_app_kit::{NSEvent, NSEventType};
@@ -30,19 +20,20 @@ use objc2_core_foundation::{CFBoolean, CFDictionary, CFRunLoop};
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventType};
 use objc2_foundation::{NSString, NSUserDefaults};
 
-use self::{
-    display::Brightness,
-    synth::Keyboard,
-    tap::{Tap, Verdict},
-};
+use self::{display::Display, synth::Keyboard, tap::Tap};
 use crate::{
     action::{Action, AppId, Command, Direction},
     combo::{Combo, Key, Modifiers},
-    config::Config,
+    event::{Context, Effect, Event, Verdict},
+    platform::{Input, Output},
 };
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("creating the event tap failed; grant Accessibility permission")]
+    Tap,
+    #[error("the run loop ended")]
+    RunLoopEnded,
     #[error("{0} is not running")]
     NotRunning(AppId),
     #[error("{0} has no Mac key code")]
@@ -51,83 +42,119 @@ pub enum Error {
     Unavailable(&'static str),
     #[error("accessibility error {0}")]
     Accessibility(i32),
+    #[error("no built-in display")]
+    NoBuiltinDisplay,
+    #[error("DisplayServices error {0}")]
+    DisplayServices(i32),
+    #[error("loading DisplayServices")]
+    Library(#[from] libloading::Error),
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
 
 /// NX_SYSDEFINED, which carries media and brightness keys.
 const SYSTEM_DEFINED: CGEventType = CGEventType(14);
-const BRIGHTNESS_UP: isize = 2;
-const BRIGHTNESS_DOWN: isize = 3;
 
-/// A command and the application it applies to.
-struct Job {
-    command: Command,
-    subject: Option<AppId>,
-}
+/// The login session's input: keys, scrolling and brightness keys from an event tap, and
+/// application launches from NSWorkspace.
+pub struct Session;
 
-/// Decides each tapped event against the live configuration.
-struct Handler {
-    config: Arc<ArcSwap<Config>>,
-    jobs: Sender<Job>,
-    brightness: Brightness,
-    /// The system scroll direction, which `natural_scroll` is relative to.
+/// The front application and the system scroll direction.
+pub struct Workspace {
     natural_scroll: bool,
 }
 
-/// Runs the configuration until the process ends.
-pub fn run(config: Arc<ArcSwap<Config>>) -> anyhow::Result<Infallible> {
-    trust();
-    let (jobs, rx) = mpsc::channel();
-    thread::spawn(move || work(rx));
-
-    let _observer = app::on_launch({
-        let (config, jobs) = (config.clone(), jobs.clone());
-        move |app| {
-            if let Some(command) = config.load().for_window.get(&app) {
-                let _ = jobs.send(Job {
-                    command: command.clone(),
-                    subject: Some(app),
-                });
-            }
-        }
-    });
-    let handler = Handler {
-        config,
-        jobs,
-        brightness: Brightness::spawn(),
-        natural_scroll: system_natural_scroll(),
-    };
-    let _tap = Tap::new(
-        &[
-            CGEventType::KeyDown,
-            CGEventType::ScrollWheel,
-            SYSTEM_DEFINED,
-        ],
-        move |kind, event| handler.handle(kind, event),
-    )
-    .context("creating the event tap")?;
-    CFRunLoop::run();
-    anyhow::bail!("the run loop ended")
+/// Applies effects: actions in order on one serial queue, brightness on another.
+pub struct Desktop {
+    actions: DispatchRetained<DispatchQueue>,
+    display: Display,
 }
 
-/// Prints each key combination with the front application, and each brightness key.
-pub fn events() -> anyhow::Result<Infallible> {
-    trust();
-    let _tap = Tap::new(&[CGEventType::KeyDown, SYSTEM_DEFINED], |kind, event| {
-        if let Some(combo) = combo(event) {
-            println!(
-                "{combo}\t{}",
-                app::front().map(|app| app.0).unwrap_or_default()
-            );
-        } else if let Some(direction) = brightness_key(kind, event) {
-            println!("brightness {direction}");
+impl Input for Session {
+    type Context = Workspace;
+    type Error = Error;
+
+    fn run(
+        self,
+        handle: impl Fn(Event, &Workspace) -> Verdict + 'static,
+    ) -> Result<Infallible, Error> {
+        trust();
+        let handle = Rc::new(handle);
+        let workspace = Rc::new(Workspace::new());
+
+        let _observer = app::on_launch({
+            let (handle, workspace) = (handle.clone(), workspace.clone());
+            move |app| {
+                handle(Event::Launched(app), &workspace);
+            }
+        });
+        let _tap = Tap::new(
+            &[
+                CGEventType::KeyDown,
+                CGEventType::ScrollWheel,
+                SYSTEM_DEFINED,
+            ],
+            move |kind, event| {
+                if synth::is_synthetic(event) {
+                    return true;
+                }
+                let Some(input) = read(kind, event) else {
+                    return true;
+                };
+                match handle(input, &workspace) {
+                    Verdict::Pass => true,
+                    Verdict::Drop => false,
+                    Verdict::Reverse => {
+                        reverse_scroll(event);
+                        true
+                    }
+                }
+            },
+        )
+        .ok_or(Error::Tap)?;
+        CFRunLoop::run();
+        Err(Error::RunLoopEnded)
+    }
+}
+
+impl Workspace {
+    fn new() -> Self {
+        let defaults = NSUserDefaults::standardUserDefaults();
+        let key = NSString::from_str("com.apple.swipescrolldirection");
+        Self {
+            natural_scroll: defaults.objectForKey(&key).is_none() || defaults.boolForKey(&key),
         }
-        Verdict::Pass
-    })
-    .context("creating the event tap")?;
-    CFRunLoop::run();
-    anyhow::bail!("the run loop ended")
+    }
+}
+
+impl Context for Workspace {
+    fn front(&self) -> Option<AppId> {
+        app::front()
+    }
+
+    fn natural_scroll(&self) -> bool {
+        self.natural_scroll
+    }
+}
+
+impl Desktop {
+    pub fn new() -> Result<Self, Error> {
+        Ok(Self {
+            actions: DispatchQueue::new("accessibility.actions", DispatchQueueAttr::SERIAL),
+            display: Display::new()?,
+        })
+    }
+}
+
+impl Output for Desktop {
+    fn apply(&self, effect: Effect) {
+        match effect {
+            Effect::Run { command, subject } => self
+                .actions
+                .exec_async(move || autoreleasepool(|_| run(&command, subject.as_ref()))),
+            Effect::SyncBrightness => self.display.sync(),
+        }
+    }
 }
 
 /// Prompts for Accessibility permission and waits until it is granted.
@@ -144,85 +171,40 @@ fn trust() {
     }
 }
 
-impl Handler {
-    fn handle(&self, kind: CGEventType, event: &CGEvent) -> Verdict {
-        if synth::is_synthetic(event) {
-            return Verdict::Pass;
-        }
-        let config = self.config.load();
-        match kind {
-            CGEventType::KeyDown => {
-                let Some(combo) = combo(event) else {
-                    return Verdict::Pass;
-                };
-                let front = app::front();
-                let Some(command) = config.bindsym(front.as_ref(), &combo) else {
-                    return Verdict::Pass;
-                };
-                let repeat = CGEvent::integer_value_field(
-                    Some(event),
-                    CGEventField::KeyboardEventAutorepeat,
-                );
-                if repeat == 0 {
-                    let _ = self.jobs.send(Job {
-                        command: command.clone(),
-                        subject: front,
-                    });
-                }
-                Verdict::Drop
-            }
-            CGEventType::ScrollWheel => {
-                let reversed = config
-                    .input
-                    .pointer
-                    .natural_scroll
-                    .is_some_and(|natural| natural != self.natural_scroll);
-                if reversed {
-                    reverse_discrete_scroll(event);
-                }
-                Verdict::Pass
-            }
-            _ => {
-                if config.brightness.sync && brightness_key(kind, event).is_some() {
-                    self.brightness.sync();
-                }
-                Verdict::Pass
-            }
-        }
-    }
-}
-
-fn combo(event: &CGEvent) -> Option<Combo> {
-    let code = CGEvent::integer_value_field(Some(event), CGEventField::KeyboardEventKeycode);
-    Some(Combo {
-        modifiers: keymap::modifiers(CGEvent::flags(Some(event))),
-        key: keymap::key(u16::try_from(code).ok()?)?,
-    })
-}
-
-/// The direction of a brightness key press, if `event` is one.
-fn brightness_key(kind: CGEventType, event: &CGEvent) -> Option<&'static str> {
-    if kind != SYSTEM_DEFINED {
-        return None;
-    }
-    let event = NSEvent::eventWithCGEvent(event)?;
-    if event.r#type() != NSEventType::SystemDefined || event.subtype().0 != 8 {
-        return None;
-    }
-    let data = event.data1();
-    let down = (data >> 8) & 0xff == 0xa;
-    match data >> 16 {
-        BRIGHTNESS_UP if down => Some("up"),
-        BRIGHTNESS_DOWN if down => Some("down"),
+/// The event a tapped `CGEvent` is, if it is one this crate decides.
+fn read(kind: CGEventType, event: &CGEvent) -> Option<Event> {
+    let field = |field| CGEvent::integer_value_field(Some(event), field);
+    match kind {
+        CGEventType::KeyDown => Some(Event::Key {
+            combo: Combo {
+                modifiers: keymap::modifiers(CGEvent::flags(Some(event))),
+                key: keymap::key(u16::try_from(field(CGEventField::KeyboardEventKeycode)).ok()?)?,
+            },
+            repeat: field(CGEventField::KeyboardEventAutorepeat) != 0,
+        }),
+        CGEventType::ScrollWheel => Some(Event::Scroll {
+            continuous: field(CGEventField::ScrollWheelEventIsContinuous) != 0,
+        }),
+        SYSTEM_DEFINED => is_brightness_key(event).then_some(Event::Brightness),
         _ => None,
     }
 }
 
-/// Reverses both axes of discrete scrolling, from mouse wheels; trackpads scroll continuously.
-fn reverse_discrete_scroll(event: &CGEvent) {
-    if CGEvent::integer_value_field(Some(event), CGEventField::ScrollWheelEventIsContinuous) != 0 {
-        return;
-    }
+/// Whether `event` is a brightness key going down.
+fn is_brightness_key(event: &CGEvent) -> bool {
+    const BRIGHTNESS_UP: isize = 2;
+    const BRIGHTNESS_DOWN: isize = 3;
+    NSEvent::eventWithCGEvent(event).is_some_and(|event| {
+        let data = event.data1();
+        event.r#type() == NSEventType::SystemDefined
+            && event.subtype().0 == 8
+            && matches!(data >> 16, BRIGHTNESS_UP | BRIGHTNESS_DOWN)
+            && (data >> 8) & 0xff == 0xa
+    })
+}
+
+/// Reverses both axes of a scroll event.
+fn reverse_scroll(event: &CGEvent) {
     for field in [
         CGEventField::ScrollWheelEventDeltaAxis1,
         CGEventField::ScrollWheelEventDeltaAxis2,
@@ -241,26 +223,16 @@ fn reverse_discrete_scroll(event: &CGEvent) {
     }
 }
 
-/// The system scroll direction, natural unless set otherwise.
-fn system_natural_scroll() -> bool {
-    let defaults = NSUserDefaults::standardUserDefaults();
-    let key = NSString::from_str("com.apple.swipescrolldirection");
-    defaults.objectForKey(&key).is_none() || defaults.boolForKey(&key)
-}
-
-fn work(jobs: Receiver<Job>) {
+/// Runs each action of `command`, logging those that fail.
+fn run(command: &Command, subject: Option<&AppId>) {
     let keyboard = match Keyboard::new() {
         Ok(keyboard) => keyboard,
-        Err(error) => return tracing::error!(%error, "starting the worker"),
+        Err(error) => return tracing::warn!(%error, "creating a keyboard"),
     };
-    for job in jobs {
-        autoreleasepool(|_| {
-            for action in &job.command {
-                if let Err(error) = perform(&keyboard, action, job.subject.as_ref()) {
-                    tracing::warn!(%error, ?action, "performing");
-                }
-            }
-        });
+    for action in command.as_ref() {
+        if let Err(error) = perform(&keyboard, action, subject) {
+            tracing::warn!(%error, ?action, "performing");
+        }
     }
 }
 

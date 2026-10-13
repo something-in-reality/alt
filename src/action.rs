@@ -1,6 +1,6 @@
 //! Actions, in sway's vocabulary where sway has a word for them.
 
-use std::{fmt, str::FromStr};
+use std::{fmt, str::FromStr, sync::Arc};
 
 use serde::{Deserialize, Deserializer, de};
 use serde_with::DeserializeFromStr;
@@ -10,7 +10,25 @@ use crate::combo::Combo;
 /// An application: its bundle identifier on macOS, its `app_id` under Wayland.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]
 #[serde(transparent)]
-pub struct AppId(pub String);
+pub struct AppId(String);
+
+impl From<String> for AppId {
+    fn from(id: String) -> Self {
+        Self(id)
+    }
+}
+
+impl From<&str> for AppId {
+    fn from(id: &str) -> Self {
+        Self(id.to_owned())
+    }
+}
+
+impl AsRef<str> for AppId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
 
 impl fmt::Display for AppId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -83,9 +101,15 @@ impl fmt::Display for Px {
     }
 }
 
-/// One action or a sequence, run in order.
+/// One action or a sequence, run in order; cloning shares the actions.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Command(pub Vec<Action>);
+pub struct Command(Arc<[Action]>);
+
+impl AsRef<[Action]> for Command {
+    fn as_ref(&self) -> &[Action] {
+        &self.0
+    }
+}
 
 impl<'de> Deserialize<'de> for Command {
     /// Keeps the inner error, which an untagged enum would replace.
@@ -101,16 +125,17 @@ impl<'de> Deserialize<'de> for Command {
 
             fn visit_str<E: de::Error>(self, s: &str) -> Result<Command, E> {
                 Action::deserialize(de::value::StrDeserializer::new(s))
-                    .map(|action| Command(vec![action]))
+                    .map(|action| Command(Arc::new([action])))
             }
 
             fn visit_map<A: de::MapAccess<'de>>(self, map: A) -> Result<Command, A::Error> {
                 Action::deserialize(de::value::MapAccessDeserializer::new(map))
-                    .map(|action| Command(vec![action]))
+                    .map(|action| Command(Arc::new([action])))
             }
 
             fn visit_seq<A: de::SeqAccess<'de>>(self, seq: A) -> Result<Command, A::Error> {
-                Vec::deserialize(de::value::SeqAccessDeserializer::new(seq)).map(Command)
+                Vec::deserialize(de::value::SeqAccessDeserializer::new(seq))
+                    .map(|actions| Command(actions.into()))
             }
         }
 

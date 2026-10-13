@@ -1,6 +1,8 @@
 //! Reloads the configuration when its file changes.
 
 use std::{
+    error::Error,
+    iter,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -36,10 +38,10 @@ pub fn watch(
                             config.store(Arc::new(loaded));
                             tracing::info!(path = %path.display(), "reloaded");
                         }
-                        Err(error) => tracing::error!(
-                            "keeping the last configuration: {:#}",
-                            anyhow::Error::from(error)
-                        ),
+                        Err(error) => {
+                            let error = chain(&error);
+                            tracing::error!(%error, "keeping the last configuration");
+                        }
                     }
                 }
             }
@@ -50,4 +52,12 @@ pub fn watch(
     )?;
     debouncer.watch(&directory, RecursiveMode::NonRecursive)?;
     Ok(debouncer)
+}
+
+/// `error` and its sources, as `outer: inner`.
+fn chain(error: &(dyn Error + 'static)) -> String {
+    iter::successors(Some(error), |&error| error.source())
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(": ")
 }

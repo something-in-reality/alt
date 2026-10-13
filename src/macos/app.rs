@@ -14,11 +14,11 @@ use super::Error;
 use crate::action::AppId;
 
 fn id(app: &NSRunningApplication) -> Option<AppId> {
-    app.bundleIdentifier().map(|id| AppId(id.to_string()))
+    app.bundleIdentifier().map(|id| AppId::from(id.to_string()))
 }
 
 fn running(app: &AppId) -> Result<Retained<NSRunningApplication>, Error> {
-    NSRunningApplication::runningApplicationsWithBundleIdentifier(&NSString::from_str(&app.0))
+    NSRunningApplication::runningApplicationsWithBundleIdentifier(&NSString::from_str(app.as_ref()))
         .firstObject()
         .ok_or_else(|| Error::NotRunning(app.clone()))
 }

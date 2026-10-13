@@ -13,13 +13,8 @@ use objc2_core_graphics::{
     CGEventType,
 };
 
-/// What happens to an event after the handler sees it.
-pub enum Verdict {
-    Pass,
-    Drop,
-}
-
-type Handler = dyn Fn(CGEventType, &CGEvent) -> Verdict;
+/// Returns whether the event continues to its destination.
+type Handler = dyn Fn(CGEventType, &CGEvent) -> bool;
 
 /// Owned through a raw pointer, which the callback also reads.
 struct State {
@@ -37,7 +32,7 @@ impl Tap {
     /// Installs a tap for `events` on the current run loop, or `None` without permission.
     pub fn new(
         events: &[CGEventType],
-        handler: impl Fn(CGEventType, &CGEvent) -> Verdict + 'static,
+        handler: impl Fn(CGEventType, &CGEvent) -> bool + 'static,
     ) -> Option<Self> {
         let state = Box::into_raw(Box::new(State {
             handler: Box::new(handler),
@@ -86,11 +81,12 @@ unsafe extern "C-unwind" fn callback(
         return event.as_ptr();
     }
     let event_ref = unsafe { event.as_ref() };
-    let verdict = autoreleasepool(|_| {
+    let pass = autoreleasepool(|_| {
         panic::catch_unwind(AssertUnwindSafe(|| (state.handler)(kind, event_ref)))
     });
-    match verdict {
-        Ok(Verdict::Drop) => ptr::null_mut(),
-        Ok(Verdict::Pass) | Err(_) => event.as_ptr(),
+    if pass.unwrap_or(true) {
+        event.as_ptr()
+    } else {
+        ptr::null_mut()
     }
 }

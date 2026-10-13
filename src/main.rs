@@ -1,7 +1,13 @@
 use std::{path::PathBuf, sync::Arc};
 
-use accessibility::{config::Config, watch::watch};
-use anyhow::Context;
+use accessibility::{
+    config::Config,
+    event::{Context, Event, Verdict},
+    macos::{Desktop, Session},
+    platform::{self, Input},
+    watch::watch,
+};
+use anyhow::Context as _;
 use arc_swap::ArcSwap;
 use clap::{Parser, Subcommand};
 use etcetera::BaseStrategy;
@@ -18,9 +24,10 @@ struct Cli {
     command: Option<Command>,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Default)]
 enum Command {
     /// Applies the configuration, reloading it when it changes.
+    #[default]
     Run,
     /// Checks the configuration.
     Check,
@@ -40,20 +47,26 @@ fn main() -> anyhow::Result<()> {
             .config_dir()
             .join("accessibility/config.toml"),
     };
-    match cli.command.unwrap_or(Command::Run) {
+    match cli.command.unwrap_or_default() {
         Command::Check => {
             Config::load(&path)?;
-            Ok(())
         }
         Command::Run => {
             let config = Arc::new(ArcSwap::from_pointee(Config::load(&path)?));
             let _watcher = watch(path, config.clone()).context("watching the configuration")?;
-            accessibility::run(config)?;
-            Ok(())
+            platform::run(Session, Desktop::new()?, config)?;
         }
         Command::Events => {
-            accessibility::events()?;
-            Ok(())
+            Session.run(|event, cx| {
+                if let Event::Key { combo, .. } = event {
+                    println!(
+                        "{combo}\t{}",
+                        cx.front().map(|app| app.to_string()).unwrap_or_default()
+                    );
+                }
+                Verdict::Pass
+            })?;
         }
     }
+    Ok(())
 }
