@@ -48,8 +48,6 @@ pub enum Action {
     Type(String),
     /// Brings a running application to the front.
     Focus(AppId),
-    /// Quits the application the command applies to.
-    Kill,
     /// Resizes the focused window.
     Resize(Resize),
     /// Moves to the previous or next workspace.
@@ -105,6 +103,23 @@ impl fmt::Display for Px {
 /// One action or a sequence, run in order; cloning shares the actions.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Command(Arc<[Action]>);
+
+impl Action {
+    /// Whether a held key repeats the action, as it repeats a typed character.
+    pub fn repeats(&self) -> bool {
+        matches!(
+            self,
+            Self::Press(_) | Self::Type(_) | Self::Resize(_) | Self::Workspace(_)
+        )
+    }
+}
+
+impl Command {
+    /// Whether a held key repeats the command: every action repeats.
+    pub fn repeats(&self) -> bool {
+        self.0.iter().all(Action::repeats)
+    }
+}
 
 impl AsRef<[Action]> for Command {
     fn as_ref(&self) -> &[Action] {

@@ -1,14 +1,8 @@
 //! Applications, through NSWorkspace.
 
-use std::ptr::NonNull;
-
-use block2::RcBlock;
-use objc2::{rc::Retained, runtime::ProtocolObject};
-use objc2_app_kit::{
-    NSRunningApplication, NSWorkspace, NSWorkspaceApplicationKey,
-    NSWorkspaceDidLaunchApplicationNotification, NSWorkspaceOpenConfiguration,
-};
-use objc2_foundation::{NSNotification, NSObjectProtocol, NSString};
+use objc2::rc::Retained;
+use objc2_app_kit::{NSRunningApplication, NSWorkspace, NSWorkspaceOpenConfiguration};
+use objc2_foundation::NSString;
 
 use super::Error;
 use crate::action::AppId;
@@ -42,33 +36,4 @@ pub fn focus(app: &AppId) -> Result<(), Error> {
         None,
     );
     Ok(())
-}
-
-/// Quits a running application.
-pub fn kill(app: &AppId) -> Result<(), Error> {
-    running(app)?.terminate();
-    Ok(())
-}
-
-/// Calls `f` with each application that launches, while the observer lives.
-pub fn on_launch(f: impl Fn(AppId) + 'static) -> Retained<ProtocolObject<dyn NSObjectProtocol>> {
-    let block = RcBlock::new(move |notification: NonNull<NSNotification>| {
-        let launched = unsafe { notification.as_ref() }
-            .userInfo()
-            .and_then(|info| info.objectForKey(unsafe { NSWorkspaceApplicationKey }))
-            .and_then(|app| app.downcast::<NSRunningApplication>().ok());
-        if let Some(app) = launched.as_deref().and_then(id) {
-            f(app);
-        }
-    });
-    unsafe {
-        NSWorkspace::sharedWorkspace()
-            .notificationCenter()
-            .addObserverForName_object_queue_usingBlock(
-                Some(NSWorkspaceDidLaunchApplicationNotification),
-                None,
-                None,
-                &block,
-            )
-    }
 }

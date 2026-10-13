@@ -2,7 +2,7 @@ use std::{io::IsTerminal, path::PathBuf, sync::Arc};
 
 use accessibility::{
     config::Config,
-    event::{Context, Event, Verdict},
+    event::{Context, Verdict},
     macos::{Desktop, Session},
     platform::{self, Input},
     watch::watch,
@@ -31,7 +31,7 @@ enum Commands {
     Run,
     /// Checks the configuration.
     Check,
-    /// Prints key combinations and the front application as they happen.
+    /// Prints each event and the front application as they happen.
     Events,
 }
 
@@ -59,12 +59,8 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Events => {
             Session.run(|event, cx| {
-                if let Event::Press { combo, .. } = event {
-                    println!(
-                        "{combo}\t{}",
-                        cx.front().map(|app| app.to_string()).unwrap_or_default()
-                    );
-                }
+                let front = cx.front().map(|app| app.to_string()).unwrap_or_default();
+                println!("{event}\t{front}");
                 Verdict::Pass
             })?;
         }

@@ -25,9 +25,6 @@ PageUp = { key = "ctrl+shift+Tab" }
 PageDown = { key = "ctrl+Tab" }
 Backquote = { key = "ctrl+KeyZ" }
 "ctrl+Backquote" = { key = "ctrl+KeyZ" }
-"super+Backquote" = [{ key = "super+KeyL" }, { key = "alt+Enter" }]
 "super+Home" = { resize = { shrink = { width = "100px" } } }
 "super+End" = { resize = { grow = { width = "100px" } } }
 
-[for_window]
-"com.apple.Music" = "kill"

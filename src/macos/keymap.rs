@@ -3,15 +3,16 @@
 use keycode::{KeyMap, KeyMapping, KeyMappingCode};
 use objc2_core_graphics::CGEventFlags;
 
-use crate::combo::{Combo, Key, Modifiers};
+use crate::combo::{Key, Modifiers};
 
 const DICTATION: u16 = 176;
 
-const MODIFIERS: [(Modifiers, CGEventFlags); 4] = [
-    (Modifiers::CTRL, CGEventFlags::MaskControl),
-    (Modifiers::ALT, CGEventFlags::MaskAlternate),
-    (Modifiers::SHIFT, CGEventFlags::MaskShift),
-    (Modifiers::SUPER, CGEventFlags::MaskCommand),
+/// Each modifier's flag, and the key code of its left key.
+const MODIFIERS: [(Modifiers, CGEventFlags, u16); 4] = [
+    (Modifiers::CTRL, CGEventFlags::MaskControl, 59),
+    (Modifiers::ALT, CGEventFlags::MaskAlternate, 58),
+    (Modifiers::SHIFT, CGEventFlags::MaskShift, 56),
+    (Modifiers::SUPER, CGEventFlags::MaskCommand, 55),
 ];
 
 pub fn key(code: u16) -> Option<Key> {
@@ -37,14 +38,22 @@ pub fn code(key: Key) -> Option<u16> {
 pub fn modifiers(flags: CGEventFlags) -> Modifiers {
     MODIFIERS
         .into_iter()
-        .filter(|&(_, flag)| flags.contains(flag))
-        .map(|(modifier, _)| modifier)
+        .filter(|&(_, flag, _)| flags.contains(flag))
+        .map(|(modifier, _, _)| modifier)
         .collect()
 }
 
-/// The flags a keyboard sets for `combo`, including those arrow and navigation keys carry.
-pub fn flags(combo: Combo) -> CGEventFlags {
-    let implicit = match combo.key {
+/// The flag and key code of each modifier in `modifiers`.
+pub fn modifier_keys(modifiers: Modifiers) -> impl DoubleEndedIterator<Item = (CGEventFlags, u16)> {
+    MODIFIERS
+        .into_iter()
+        .filter(move |&(modifier, _, _)| modifiers.contains(modifier))
+        .map(|(_, flag, code)| (flag, code))
+}
+
+/// The flags a keyboard sets with `key` itself: arrow and navigation keys carry fn.
+pub fn implicit_flags(key: Key) -> CGEventFlags {
+    match key {
         Key::Code(
             KeyMappingCode::ArrowLeft
             | KeyMappingCode::ArrowRight
@@ -59,11 +68,7 @@ pub fn flags(combo: Combo) -> CGEventFlags {
             | KeyMappingCode::Delete,
         ) => CGEventFlags::MaskSecondaryFn,
         _ => CGEventFlags::empty(),
-    };
-    MODIFIERS
-        .into_iter()
-        .filter(|&(modifier, _)| combo.modifiers.contains(modifier))
-        .fold(implicit, |flags, (_, flag)| flags | flag)
+    }
 }
 
 #[cfg(test)]
@@ -89,10 +94,10 @@ mod tests {
 
     #[test]
     fn modifiers_round_trip() {
-        let combo = Combo {
-            modifiers: Modifiers::all(),
-            key: "ArrowLeft".parse().unwrap(),
-        };
-        assert_eq!(modifiers(flags(combo)), combo.modifiers);
+        let flags = modifier_keys(Modifiers::all())
+            .fold(CGEventFlags::MaskSecondaryFn, |flags, (flag, _)| {
+                flags | flag
+            });
+        assert_eq!(modifiers(flags), Modifiers::all());
     }
 }

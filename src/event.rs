@@ -1,5 +1,7 @@
 //! Input events, and how the configuration decides them.
 
+use std::fmt;
+
 use crate::{
     action::{AppId, Command},
     combo::Combo,
@@ -19,7 +21,24 @@ pub enum Event {
     },
     /// A brightness key, after the system has applied it.
     BrightnessKey,
-    Launched(AppId),
+}
+
+impl fmt::Display for Event {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Press {
+                combo,
+                repeat: false,
+            } => combo.fmt(f),
+            Self::Press {
+                combo,
+                repeat: true,
+            } => write!(f, "{combo} (repeat)"),
+            Self::Scroll { continuous: true } => f.write_str("scroll (continuous)"),
+            Self::Scroll { continuous: false } => f.write_str("scroll (discrete)"),
+            Self::BrightnessKey => f.write_str("brightness key"),
+        }
+    }
 }
 
 /// What happens to the event itself.
@@ -34,11 +53,7 @@ pub enum Verdict {
 /// Work the platform does in response.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
-    /// Runs `command`; `subject` is the application `kill` quits.
-    Run {
-        command: Command,
-        subject: Option<AppId>,
-    },
+    Run(Command),
     /// External displays follow the built-in display's brightness.
     SyncBrightness,
 }
@@ -70,27 +85,27 @@ impl Decision {
         }
     }
 
-    fn run(verdict: Verdict, command: &Command, subject: Option<AppId>) -> Self {
+    fn run(command: &Command) -> Self {
         Self {
-            verdict,
-            effect: Some(Effect::Run {
-                command: command.clone(),
-                subject,
-            }),
+            verdict: Verdict::Drop,
+            effect: Some(Effect::Run(command.clone())),
         }
     }
 }
 
 impl Config {
-    /// Decides an event: a bound key is dropped and runs its command once per press.
+    /// Decides an event: a bound key is dropped and runs its command; a held key repeats the
+    /// command only when it repeats.
     pub fn decide(&self, event: Event, system: &System, cx: &impl Context) -> Decision {
         match event {
             Event::Press { combo, repeat } => {
                 let front = cx.front();
                 match self.bindsym(front.as_ref(), &combo) {
                     None => Decision::PASS,
-                    Some(_) if repeat => Decision::verdict(Verdict::Drop),
-                    Some(command) => Decision::run(Verdict::Drop, command, front),
+                    Some(command) if repeat && !command.repeats() => {
+                        Decision::verdict(Verdict::Drop)
+                    }
+                    Some(command) => Decision::run(command),
                 }
             }
             Event::Scroll { continuous: false } => match self.input.pointer.natural_scroll {
@@ -105,10 +120,6 @@ impl Config {
                 effect: Some(Effect::SyncBrightness),
             },
             Event::BrightnessKey => Decision::PASS,
-            Event::Launched(app) => match self.for_window.get(&app) {
-                Some(command) => Decision::run(Verdict::Pass, command, Some(app)),
-                None => Decision::PASS,
-            },
         }
     }
 }
@@ -190,27 +201,27 @@ mod tests {
             (FIREFOX, "PageDown", r#"{ key = "ctrl+Tab" }"#),
             (FIREFOX, "Backquote", r#"{ key = "ctrl+KeyZ" }"#),
             (FIREFOX, "ctrl+Backquote", r#"{ key = "ctrl+KeyZ" }"#),
-            (
-                FIREFOX,
-                "super+Backquote",
-                r#"[{ key = "super+KeyL" }, { key = "alt+Enter" }]"#,
-            ),
         ];
         for (front, combo, expected) in triggers {
             let decision = press(front, combo, false);
             assert_eq!(decision.verdict, Verdict::Drop, "{combo} in {front}");
-            let Some(Effect::Run { command, subject }) = decision.effect else {
+            let Some(Effect::Run(command)) = decision.effect else {
                 panic!("{combo} in {front} runs nothing");
             };
             assert_eq!(command.as_ref(), actions(expected), "{combo} in {front}");
-            assert_eq!(subject, Some(AppId::from(front)));
         }
     }
 
     #[test]
-    fn repeats_drop_without_running() {
+    fn held_keys_repeat_only_incremental_commands() {
+        let resize = press(GHOSTTY, "super+Home", true);
+        assert!(matches!(resize.effect, Some(Effect::Run(_))));
         assert_eq!(
-            press(FIREFOX, "PageUp", true),
+            press(GHOSTTY, "Home", true),
+            Decision::verdict(Verdict::Drop)
+        );
+        assert_eq!(
+            press(GHOSTTY, "alt+KeyB", true),
             Decision::verdict(Verdict::Drop)
         );
     }
@@ -242,16 +253,5 @@ mod tests {
         let decide = |config: Config| config.decide(Event::BrightnessKey, &NATURAL, &Front(None));
         assert_eq!(decide(config()).effect, Some(Effect::SyncBrightness));
         assert_eq!(decide(Config::default()), Decision::PASS);
-    }
-
-    #[test]
-    fn launches_run_window_rules_on_the_launched_app() {
-        let music = AppId::from("com.apple.Music");
-        let decision = config().decide(Event::Launched(music.clone()), &NATURAL, &Front(None));
-        let Some(Effect::Run { command, subject }) = decision.effect else {
-            panic!("Music's launch runs nothing");
-        };
-        assert_eq!(command.as_ref(), [Action::Kill]);
-        assert_eq!(subject, Some(music));
     }
 }

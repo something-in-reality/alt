@@ -1,4 +1,4 @@
-//! macOS: a session event tap and NSWorkspace are the `Input`; GCD queues apply the `Output`.
+//! macOS: a session event tap is the `Input`; GCD queues apply the `Output`.
 
 mod app;
 mod display;
@@ -7,7 +7,7 @@ mod synth;
 mod tap;
 mod window;
 
-use std::{convert::Infallible, process, rc::Rc, thread};
+use std::{convert::Infallible, process, thread};
 
 use dispatch2::{DispatchQueue, DispatchQueueAttr, DispatchRetained};
 use keycode::KeyMappingCode;
@@ -55,8 +55,7 @@ pub enum Error {
 /// NX_SYSDEFINED, which carries media and brightness keys.
 const SYSTEM_DEFINED: CGEventType = CGEventType(14);
 
-/// The login session's input: keys, scrolling and brightness keys from an event tap, and
-/// application launches from NSWorkspace.
+/// The login session's keys, scrolling and brightness keys, from an event tap.
 pub struct Session;
 
 /// Running applications, through NSWorkspace.
@@ -82,14 +81,6 @@ impl Input for Session {
 
     fn run(self, handle: impl Fn(Event, &Apps) -> Verdict + 'static) -> Result<Infallible, Error> {
         trust()?;
-        let handle = Rc::new(handle);
-
-        let _observer = app::on_launch({
-            let handle = handle.clone();
-            move |app| {
-                handle(Event::Launched(app), &Apps);
-            }
-        });
         let _tap = Tap::new(
             &[
                 CGEventType::KeyDown,
@@ -138,9 +129,9 @@ impl Desktop {
 impl Output for Desktop {
     fn apply(&self, effect: Effect) {
         match effect {
-            Effect::Run { command, subject } => self
+            Effect::Run(command) => self
                 .actions
-                .exec_async(move || autoreleasepool(|_| execute(&command, subject.as_ref()))),
+                .exec_async(move || autoreleasepool(|_| execute(&command))),
             Effect::SyncBrightness => self.displays.sync(),
         }
     }
@@ -213,19 +204,19 @@ fn reverse_scroll(event: &CGEvent) {
 }
 
 /// Runs each action of `command`, logging those that fail.
-fn execute(command: &Command, subject: Option<&AppId>) {
+fn execute(command: &Command) {
     let keyboard = match Keyboard::new() {
         Ok(keyboard) => keyboard,
         Err(error) => return tracing::warn!(%error, "creating a keyboard"),
     };
     for action in command.as_ref() {
-        if let Err(error) = perform(&keyboard, action, subject) {
+        if let Err(error) = perform(&keyboard, action) {
             tracing::warn!(%error, ?action, "performing");
         }
     }
 }
 
-fn perform(keyboard: &Keyboard, action: &Action, subject: Option<&AppId>) -> Result<(), Error> {
+fn perform(keyboard: &Keyboard, action: &Action) -> Result<(), Error> {
     match action {
         Action::Exec(command) => {
             let mut child = process::Command::new("/bin/sh")
@@ -237,7 +228,6 @@ fn perform(keyboard: &Keyboard, action: &Action, subject: Option<&AppId>) -> Res
         Action::Press(combo) => keyboard.press(*combo),
         Action::Type(text) => keyboard.type_text(text),
         Action::Focus(app) => app::focus(app),
-        Action::Kill => app::kill(subject.ok_or(Error::Unavailable("the front application"))?),
         Action::Resize(resize) => window::resize(*resize),
         Action::Workspace(direction) => keyboard.press(Combo {
             modifiers: Modifiers::CTRL,

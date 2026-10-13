@@ -4,7 +4,8 @@ use keycode::KeyMappingCode;
 use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType};
 use objc2_core_foundation::{CFRetained, CGPoint};
 use objc2_core_graphics::{
-    CGEvent, CGEventField, CGEventSource, CGEventSourceStateID, CGEventTapLocation,
+    CGEvent, CGEventField, CGEventFlags, CGEventSource, CGEventSourceStateID, CGEventTapLocation,
+    CGEventType,
 };
 
 use super::{Error, keymap};
@@ -41,6 +42,7 @@ impl Keyboard {
             .ok_or(Error::Unavailable("an event source"))
     }
 
+    /// Presses `combo` as a keyboard does: modifiers down, the key down and up, modifiers up.
     pub fn press(&self, combo: Combo) -> Result<(), Error> {
         if let Some(kind) = media(combo.key) {
             return [0xa, 0xb]
@@ -48,13 +50,36 @@ impl Keyboard {
                 .try_for_each(|state| post_media(kind, state));
         }
         let code = keymap::code(combo.key).ok_or(Error::Unmapped(combo.key))?;
-        [true, false].into_iter().try_for_each(|down| {
-            let event = CGEvent::new_keyboard_event(Some(&self.source), code, down)
-                .ok_or(Error::Unavailable("a keyboard event"))?;
-            CGEvent::set_flags(Some(&event), keymap::flags(combo));
-            post(&event);
-            Ok(())
-        })
+        let modifiers: Vec<_> = keymap::modifier_keys(combo.modifiers).collect();
+        let mut held = CGEventFlags::empty();
+        for &(flag, modifier) in &modifiers {
+            held |= flag;
+            self.key(modifier, true, held, CGEventType::FlagsChanged)?;
+        }
+        let flags = held | keymap::implicit_flags(combo.key);
+        self.key(code, true, flags, CGEventType::KeyDown)?;
+        self.key(code, false, flags, CGEventType::KeyUp)?;
+        for &(flag, modifier) in modifiers.iter().rev() {
+            held &= !flag;
+            self.key(modifier, false, held, CGEventType::FlagsChanged)?;
+        }
+        Ok(())
+    }
+
+    /// Posts one key event of `kind` with `flags`.
+    fn key(
+        &self,
+        code: u16,
+        down: bool,
+        flags: CGEventFlags,
+        kind: CGEventType,
+    ) -> Result<(), Error> {
+        let event = CGEvent::new_keyboard_event(Some(&self.source), code, down)
+            .ok_or(Error::Unavailable("a keyboard event"))?;
+        CGEvent::set_type(Some(&event), kind);
+        CGEvent::set_flags(Some(&event), flags);
+        post(&event);
+        Ok(())
     }
 
     pub fn type_text(&self, text: &str) -> Result<(), Error> {

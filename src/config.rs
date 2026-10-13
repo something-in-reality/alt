@@ -26,8 +26,6 @@ pub struct Config {
     pub bindsym: HashMap<Combo, Command>,
     /// Bindings that apply while an application is in front, over those in `bindsym`.
     pub app_id: BTreeMap<AppId, App>,
-    /// Commands run when an application launches.
-    pub for_window: BTreeMap<AppId, Command>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -134,11 +132,8 @@ mod tests {
         let config: Config = EXAMPLE.parse().unwrap();
         assert_eq!(command(&config, None, "PageUp"), None);
         assert_eq!(
-            command(&config, Some("org.nixos.firefox"), "super+Backquote"),
-            Some(vec![
-                Action::Press("super+KeyL".parse().unwrap()),
-                Action::Press("alt+Enter".parse().unwrap()),
-            ])
+            command(&config, Some("org.nixos.firefox"), "Backquote"),
+            Some(vec![Action::Press("ctrl+KeyZ".parse().unwrap())])
         );
         assert_eq!(
             command(&config, Some("org.nixos.firefox"), "F3"),
@@ -147,8 +142,22 @@ mod tests {
     }
 
     #[test]
+    fn sequences_run_in_order() {
+        let config: Config = "[bindsym]\nF1 = [{ key = \"super+KeyL\" }, { type = \"x\" }]"
+            .parse()
+            .unwrap();
+        assert_eq!(
+            command(&config, None, "F1"),
+            Some(vec![
+                Action::Press("super+KeyL".parse().unwrap()),
+                Action::Type("x".to_owned()),
+            ])
+        );
+    }
+
+    #[test]
     fn rejects_one_combo_bound_twice() {
-        let config = "[bindsym]\n\"ctrl+shift+Tab\" = \"kill\"\n\"shift+ctrl+Tab\" = \"kill\"";
+        let config = "[bindsym]\n\"ctrl+shift+Tab\" = { type = \"x\" }\n\"shift+ctrl+Tab\" = { type = \"x\" }";
         assert!(config.parse::<Config>().is_err());
     }
 
