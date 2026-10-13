@@ -3,6 +3,7 @@
 mod app;
 mod display;
 mod keymap;
+pub mod setup;
 mod synth;
 mod tap;
 mod window;
@@ -61,9 +62,17 @@ pub enum Error {
     DisplayServices(i32),
     #[error("loading DisplayServices")]
     Library(#[from] libloading::Error),
+    #[error("{} failed: {status}", program.display())]
+    Setup {
+        program: std::path::PathBuf,
+        status: process::ExitStatus,
+    },
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
+
+/// The app's bundle identifier, which also names its log subsystem.
+pub const IDENTIFIER: &str = "something-in-reality.accessibility";
 
 /// NX_SYSDEFINED, which carries media and brightness keys.
 const SYSTEM_DEFINED: CGEventType = CGEventType(14);

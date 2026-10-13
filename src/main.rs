@@ -3,7 +3,7 @@ use std::{io::IsTerminal, path::PathBuf, sync::Arc};
 use accessibility::{
     config::Config,
     event::{Context, Verdict},
-    macos::{Desktop, Session},
+    macos::{self, Desktop, Session, setup},
     platform::{self, Input},
     watch::watch,
 };
@@ -11,7 +11,8 @@ use anyhow::Context as _;
 use arc_swap::ArcSwap;
 use clap::{Parser, Subcommand};
 use etcetera::BaseStrategy;
-use tracing_subscriber::EnvFilter;
+use tracing_oslog::OsLogger;
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Keyboard, pointer, window and display behaviour outside the terminal.
 #[derive(Parser)]
@@ -33,16 +34,27 @@ enum Commands {
     Check,
     /// Prints each event and the front application as they happen, without affecting them.
     Events,
+    /// Sets up this machine once: a code-signing certificate that signs the app.
+    Setup {
+        /// The certificate's name, which the home-manager module's `certificate` names too.
+        #[arg(long)]
+        certificate: String,
+    },
     /// Exits successfully when this process may observe and post input.
     #[command(hide = true)]
     Trusted,
 }
 
 fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
-        .with_writer(std::io::stderr)
-        .with_ansi(std::io::stderr().is_terminal())
+    // The unified log, as the app's subsystem; a terminal also reads it on stderr.
+    tracing_subscriber::registry()
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+        .with(OsLogger::new(macos::IDENTIFIER, "default"))
+        .with(
+            std::io::stderr()
+                .is_terminal()
+                .then(|| tracing_subscriber::fmt::layer().with_writer(std::io::stderr)),
+        )
         .init();
     let cli = Cli::parse();
     let path = match cli.config {
@@ -67,8 +79,11 @@ fn main() -> anyhow::Result<()> {
                 Verdict::Pass
             })?;
         }
+        Commands::Setup { certificate } => {
+            setup::setup(&[&setup::Certificate { name: certificate }])?;
+        }
         Commands::Trusted => {
-            if !accessibility::macos::trusted() {
+            if !macos::trusted() {
                 std::process::exit(1);
             }
         }
