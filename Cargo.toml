@@ -5,6 +5,9 @@ edition = "2024"
 description = "Keyboard, pointer, window and display behaviour outside the terminal"
 publish = false
 
+[workspace]
+members = ["signing-identity"]
+
 [dependencies]
 anyhow = "1"
 arc-swap = "1.9"
@@ -34,6 +37,5 @@ objc2-application-services = "0.3"
 objc2-core-foundation = "0.3"
 objc2-core-graphics = "0.3"
 objc2-foundation = "0.3"
-tempfile = "3"
 tracing-oslog = "0.3"
 objc2-io-bluetooth = "0.3.2"

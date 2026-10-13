@@ -5,7 +5,6 @@ mod app;
 mod bluetooth;
 mod display;
 mod keymap;
-pub mod setup;
 pub mod status;
 mod synth;
 mod tap;
@@ -75,11 +74,6 @@ pub enum Error {
     DisplayServices(i32),
     #[error("loading DisplayServices")]
     Library(#[from] libloading::Error),
-    #[error("{} failed: {status}", program.display())]
-    Setup {
-        program: std::path::PathBuf,
-        status: process::ExitStatus,
-    },
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }

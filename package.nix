@@ -17,14 +17,18 @@ rustPlatform.buildRustPackage {
       ./Cargo.lock
       ./Info.plist
       ./config.toml
+      ./signing-identity
       ./src
     ];
   };
   cargoLock.lockFile = ./Cargo.lock;
+  cargoBuildFlags = [ "--workspace" ];
+  cargoTestFlags = [ "--workspace" ];
 
   nativeBuildInputs = [ installShellFiles ];
 
-  # An app bundle gives the binary a bundle identifier for its permissions.
+  # An app bundle gives the binary a bundle identifier for its permissions; bin/signing-identity
+  # derives the identity that signs it.
   postInstall = ''
     app=$out/Applications/Accessibility.app/Contents
     install -D $out/bin/accessibility $app/MacOS/accessibility

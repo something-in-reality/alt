@@ -1,7 +1,7 @@
 # home-manager module: the accessibility app as a launchd agent at login, reading
 # $XDG_CONFIG_HOME/accessibility/config.toml. Activation copies the app to ~/Applications and signs
-# it with `certificate`, so its Accessibility permission survives rebuilds; `accessibility setup`
-# creates the certificate. The app logs to the unified log.
+# it with rcodesign under an identity derived from `seed`: every build meets one designated
+# requirement, so its Accessibility permission survives rebuilds. The app logs to the unified log.
 {
   config,
   lib,
@@ -11,6 +11,8 @@
 let
   service = config.services.accessibility;
   bundle = "${config.home.homeDirectory}/Applications/Accessibility.app";
+  signed = "${config.xdg.stateHome}/accessibility/signed";
+  agent = config.launchd.agents.accessibility.config.Label;
   identifier = "something-in-reality.accessibility";
 in
 {
@@ -29,10 +31,13 @@ in
       description = "The configuration file; null leaves it unmanaged.";
     };
 
-    certificate = lib.mkOption {
+    seed = lib.mkOption {
       type = lib.types.str;
-      example = "something-in-reality";
-      description = "The code-signing identity in the login keychain that signs the app.";
+      example = "/Users/me/infrastructure.key";
+      description = ''
+        Absolute path of the 64-hex-character seed file that the app's signing identity derives
+        from; activation reads it in place.
+      '';
     };
 
     path = lib.mkOption {
@@ -47,19 +52,17 @@ in
 
     # Copies and signs the app when the package changes, then restarts the agent onto it.
     home.activation.accessibility = lib.hm.dag.entryAfter [ "setupLaunchAgents" ] ''
-      source=${service.package}/Applications/Accessibility.app
-      certificate=${lib.escapeShellArg service.certificate}
-      if ! /usr/bin/security find-identity -v -p codesigning | grep -qF "\"$certificate\""; then
-        echo "accessibility: no code-signing identity \"$certificate\"; run" \
-          "accessibility setup --certificate $certificate" >&2
-      elif [ "$(cat ${bundle}/Contents/source 2>/dev/null)" != "$source" ]; then
-        run rm -rf ${bundle}
-        run cp -R "$source" ${bundle}
-        run chmod -R u+w ${bundle}
-        run /usr/bin/codesign --force --sign "$certificate" ${bundle}
-        echo "$source" > ${bundle}/Contents/source
-        run /usr/bin/pkill -f ${bundle}/Contents/MacOS/accessibility || true
-        run /bin/launchctl kickstart -k gui/$(id -u)/org.nix-community.home.accessibility || true
+      app=${service.package}/Applications/Accessibility.app
+      if [ "$(cat ${lib.escapeShellArg signed} 2>/dev/null)" != "$app" ]; then
+        run rm -rf ${lib.escapeShellArg bundle}
+        run cp -R "$app" ${lib.escapeShellArg bundle}
+        run chmod -R u+w ${lib.escapeShellArg bundle}
+        ${service.package}/bin/signing-identity ${lib.escapeShellArg service.seed} \
+          | run ${lib.getExe pkgs.rcodesign} sign --timestamp-url none --pem-file /dev/stdin \
+            ${lib.escapeShellArg bundle}
+        run mkdir -p ${lib.escapeShellArg (dirOf signed)}
+        echo "$app" | run --quiet tee ${lib.escapeShellArg signed} >/dev/null
+        run /bin/launchctl kickstart -k gui/$(/usr/bin/id -u)/${agent} || true
       fi
     '';
 

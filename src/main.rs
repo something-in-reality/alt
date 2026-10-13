@@ -6,7 +6,7 @@ use std::{
 
 use accessibility::{
     config::Config,
-    macos::{self, Dispatcher, Session, setup, status::Status},
+    macos::{self, Dispatcher, Session, status::Status},
     platform,
     watch::watch,
 };
@@ -21,7 +21,7 @@ use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitEx
 /// Keyboard, pointer, window and display behaviour outside the terminal.
 ///
 /// Without a command, applies the configuration in the foreground and reloads it when it changes;
-/// launchd runs it so at login.
+/// launchd runs it at login.
 #[derive(Parser)]
 #[command(version)]
 struct Cli {
@@ -38,13 +38,6 @@ enum Commands {
     Status,
     /// Streams the running app's log: each decided event, action and error.
     Log,
-    /// Sets up this machine once: a code-signing certificate that signs the app, usable without
-    /// prompts.
-    Setup {
-        /// The certificate's name, which the home-manager module's `certificate` names too.
-        #[arg(long)]
-        certificate: String,
-    },
     /// Prints shell completions.
     #[command(hide = true)]
     Completions { shell: Shell },
@@ -85,14 +78,6 @@ fn main() -> anyhow::Result<()> {
             println!("{}", Status::read());
         }
         Some(Commands::Log) => return Err(macos::log().into()),
-        Some(Commands::Setup { certificate }) => {
-            setup::setup(&[
-                &setup::Certificate {
-                    name: certificate.clone(),
-                },
-                &setup::KeyAccess { name: certificate },
-            ])?;
-        }
         Some(Commands::Completions { shell }) => {
             clap_complete::generate(
                 shell,
