@@ -5,6 +5,7 @@
 }:
 let
   manifest = (lib.importTOML ./Cargo.toml).package;
+  identifier = "something-in-reality.accessibility";
 in
 rustPlatform.buildRustPackage {
   pname = manifest.name;
@@ -32,12 +33,15 @@ rustPlatform.buildRustPackage {
   postInstall = ''
     app=$out/Applications/Accessibility.app/Contents
     install -D $out/bin/accessibility $app/MacOS/accessibility
-    substitute Info.plist $app/Info.plist --subst-var version
+    substitute Info.plist $app/Info.plist --subst-var version --subst-var-by identifier ${identifier}
     installShellCompletion --cmd accessibility \
       --bash <($out/bin/accessibility completions bash) \
       --fish <($out/bin/accessibility completions fish) \
       --zsh <($out/bin/accessibility completions zsh)
   '';
+
+  # The bundle identifier, which names the app's permissions and log subsystem.
+  passthru = { inherit identifier; };
 
   meta = {
     inherit (manifest) description;

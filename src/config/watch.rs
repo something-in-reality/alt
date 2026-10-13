@@ -1,21 +1,21 @@
 //! Reloads the configuration when its file changes.
 
 use std::{
-    error::Error,
-    iter,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
 
 use arc_swap::ArcSwap;
-use notify::{RecommendedWatcher, RecursiveMode};
-use notify_debouncer_full::{DebounceEventResult, Debouncer, RecommendedCache, new_debouncer};
+use notify_debouncer_full::{
+    DebounceEventResult, Debouncer, RecommendedCache, new_debouncer,
+    notify::{self, RecommendedWatcher, RecursiveMode},
+};
 
-use crate::config::Config;
+use super::Config;
 
-/// Watches `path`'s directory, as home-manager replaces the file by relinking it.
-/// Each change loads the file into `config`; an invalid file keeps the last valid configuration.
+/// Loads `path` into `config` on each change to it; an invalid file keeps the last valid
+/// configuration. The watch is on the file's directory, which sees the file replaced by a link.
 pub fn watch(
     path: PathBuf,
     config: Arc<ArcSwap<Config>>,
@@ -38,10 +38,10 @@ pub fn watch(
                             config.store(Arc::new(loaded));
                             tracing::info!(path = %path.display(), "reloaded");
                         }
-                        Err(error) => {
-                            let error = chain(&error);
-                            tracing::error!(%error, "keeping the last configuration");
-                        }
+                        Err(error) => tracing::error!(
+                            error = %format_args!("{:#}", anyhow::Error::from(error)),
+                            "keeping the last configuration"
+                        ),
                     }
                 }
             }
@@ -52,12 +52,4 @@ pub fn watch(
     )?;
     debouncer.watch(&directory, RecursiveMode::NonRecursive)?;
     Ok(debouncer)
-}
-
-/// `error` and its sources, as `outer: inner`.
-fn chain(error: &(dyn Error + 'static)) -> String {
-    iter::successors(Some(error), |&error| error.source())
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(": ")
 }

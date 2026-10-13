@@ -34,10 +34,10 @@ fn paired(device: &Device) -> Result<Retained<IOBluetoothDevice>, Error> {
         .into_iter()
         .flat_map(|devices| devices.to_vec())
         .filter_map(|paired| paired.downcast::<IOBluetoothDevice>().ok())
-        .find(|paired| unsafe {
-            paired.name().to_string() == device.as_ref()
-                || paired
-                    .addressString()
+        .find(|paired| {
+            let (name, found) = unsafe { (paired.name(), paired.addressString()) };
+            name.to_string() == device.as_ref()
+                || found
                     .is_some_and(|found| address(&found.to_string()) == address(device.as_ref()))
         })
         .ok_or_else(|| Error::NotPaired(device.clone()))

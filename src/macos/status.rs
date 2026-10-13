@@ -1,34 +1,37 @@
-//! The running app and its signature.
+//! The installed app, its process and its signature.
 
-use std::{fmt, path::PathBuf, process::Command};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
-use objc2_app_kit::NSRunningApplication;
-use objc2_foundation::NSString;
+use libproc::{
+    libproc::proc_pid::pidpath,
+    processes::{ProcFilter, pids_by_type},
+};
 
-use super::IDENTIFIER;
-
-/// The app as the system sees it.
+/// The app at ~/Applications/Accessibility.app, where the home-manager module installs it.
 pub struct Status {
-    pid: Option<i32>,
+    pid: Option<u32>,
     bundle: PathBuf,
     signer: Option<String>,
 }
 
 impl Status {
     pub fn read() -> Self {
-        let running = NSRunningApplication::runningApplicationsWithBundleIdentifier(
-            &NSString::from_str(IDENTIFIER),
-        )
-        .firstObject();
-        let bundle = running
-            .as_deref()
-            .and_then(|app| app.bundleURL())
-            .and_then(|url| url.path())
-            .map(|path| PathBuf::from(path.to_string()))
-            .unwrap_or_else(|| {
-                etcetera::home_dir()
-                    .unwrap_or_default()
-                    .join("Applications/Accessibility.app")
+        let bundle = etcetera::home_dir()
+            .unwrap_or_default()
+            .join("Applications/Accessibility.app");
+        let executable = bundle.join("Contents/MacOS/accessibility");
+        let pid = pids_by_type(ProcFilter::All)
+            .unwrap_or_default()
+            .into_iter()
+            .find(|&pid| {
+                i32::try_from(pid)
+                    .ok()
+                    .and_then(|pid| pidpath(pid).ok())
+                    .is_some_and(|path| Path::new(&path) == executable)
             });
         let signer = Command::new("/usr/bin/codesign")
             .args(["-d", "-vv"])
@@ -42,7 +45,7 @@ impl Status {
                     .map(ToOwned::to_owned)
             });
         Self {
-            pid: running.map(|app| app.processIdentifier()),
+            pid,
             bundle,
             signer,
         }

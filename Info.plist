@@ -7,7 +7,7 @@
 	<key>CFBundleDisplayName</key>
 	<string>Accessibility</string>
 	<key>CFBundleIdentifier</key>
-	<string>something-in-reality.accessibility</string>
+	<string>@identifier@</string>
 	<key>CFBundleName</key>
 	<string>Accessibility</string>
 	<key>CFBundleShortVersionString</key>

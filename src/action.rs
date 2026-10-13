@@ -86,7 +86,7 @@ pub enum Display {
 /// An application: its bundle identifier on macOS, its `app_id` under Wayland.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]
 #[serde(transparent)]
-pub struct AppId(String);
+pub struct AppId(Arc<str>);
 
 /// A paired Bluetooth device, by name or address.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -113,7 +113,7 @@ impl Action {
         }
     }
 
-    /// Whether a held key repeats the action, as it repeats a typed character.
+    /// Whether a key's autorepeat reruns the action.
     pub fn repeats(&self) -> bool {
         matches!(
             self,
@@ -124,13 +124,13 @@ impl Action {
 
 impl From<String> for AppId {
     fn from(id: String) -> Self {
-        Self(id)
+        Self(id.into())
     }
 }
 
 impl From<&str> for AppId {
     fn from(id: &str) -> Self {
-        Self(id.to_owned())
+        Self(id.into())
     }
 }
 
@@ -217,7 +217,7 @@ impl<'de> Deserialize<'de> for Step {
 }
 
 impl<'de> Deserialize<'de> for Command {
-    /// One action or a list; errors keep the field they come from.
+    /// Reads one action or a list of actions, with each error at the field it comes from.
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct Visitor;
 

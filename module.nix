@@ -13,7 +13,6 @@ let
   bundle = "${config.home.homeDirectory}/Applications/Accessibility.app";
   signed = "${config.xdg.stateHome}/accessibility/signed";
   agent = config.launchd.agents.accessibility.config.Label;
-  identifier = "something-in-reality.accessibility";
 in
 {
   options.services.accessibility = {
@@ -22,13 +21,8 @@ in
     package = lib.mkOption {
       type = lib.types.package;
       default = pkgs.callPackage ./package.nix { };
+      defaultText = lib.literalMD "this flake's package";
       description = "The accessibility package.";
-    };
-
-    configFile = lib.mkOption {
-      type = lib.types.nullOr lib.types.path;
-      default = null;
-      description = "The configuration file; null leaves it unmanaged.";
     };
 
     seed = lib.mkOption {
@@ -48,6 +42,10 @@ in
   };
 
   config = lib.mkIf service.enable {
+    assertions = [
+      (lib.hm.assertions.assertPlatform "services.accessibility" pkgs lib.platforms.darwin)
+    ];
+
     home.packages = [ service.package ];
 
     # Copies and signs the app when the package changes, then restarts the agent onto it.
@@ -66,10 +64,6 @@ in
       fi
     '';
 
-    xdg.configFile."accessibility/config.toml" = lib.mkIf (service.configFile != null) {
-      source = service.configFile;
-    };
-
     # The agent runs the app's executable, outside the store, so System Settings names it after
     # the app.
     launchd.agents.accessibility = {
@@ -77,7 +71,7 @@ in
       waitForNixStore = false;
       config = {
         ProgramArguments = [ "${bundle}/Contents/MacOS/accessibility" ];
-        AssociatedBundleIdentifiers = identifier;
+        AssociatedBundleIdentifiers = service.package.identifier;
         EnvironmentVariables.PATH = lib.makeBinPath service.path + ":/usr/bin:/bin";
         RunAtLoad = true;
         KeepAlive = true;

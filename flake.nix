@@ -4,7 +4,7 @@
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
   outputs =
-    { nixpkgs, ... }:
+    { self, nixpkgs, ... }:
     let
       forAllSystems = nixpkgs.lib.genAttrs [ "aarch64-darwin" ];
     in
@@ -13,7 +13,11 @@
         default = nixpkgs.legacyPackages.${system}.callPackage ./package.nix { };
       });
 
-      homeManagerModules.default = ./module.nix;
+      checks = self.packages;
+
+      formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt);
+
+      homeModules.default = ./module.nix;
 
       devShells = forAllSystems (system: {
         default =

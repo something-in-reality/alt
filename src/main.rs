@@ -1,14 +1,14 @@
 use std::{
     io::{self, IsTerminal},
     path::PathBuf,
+    process::ExitCode,
     sync::Arc,
 };
 
 use accessibility::{
-    config::Config,
+    config::{Config, watch::watch},
     macos::{self, Dispatcher, Session, status::Status},
     platform,
-    watch::watch,
 };
 use anyhow::Context as _;
 use arc_swap::ArcSwap;
@@ -46,7 +46,7 @@ enum Commands {
     Trusted,
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<ExitCode> {
     // The unified log, as the app's subsystem; a terminal also reads it on stderr.
     tracing_subscriber::registry()
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
@@ -73,11 +73,15 @@ fn main() -> anyhow::Result<()> {
         Some(Commands::Status) => {
             match Config::load(&path) {
                 Ok(_) => println!("config:    {}", path.display()),
-                Err(error) => println!("config:    {}: {error}", path.display()),
+                Err(error) => println!(
+                    "config:    {}: {:#}",
+                    path.display(),
+                    anyhow::Error::from(error)
+                ),
             }
             println!("{}", Status::read());
         }
-        Some(Commands::Log) => return Err(macos::log().into()),
+        Some(Commands::Log) => match macos::log()? {},
         Some(Commands::Completions { shell }) => {
             clap_complete::generate(
                 shell,
@@ -86,11 +90,8 @@ fn main() -> anyhow::Result<()> {
                 &mut io::stdout(),
             );
         }
-        Some(Commands::Trusted) => {
-            if !macos::trusted() {
-                std::process::exit(1);
-            }
-        }
+        Some(Commands::Trusted) if !macos::trusted() => return Ok(ExitCode::FAILURE),
+        Some(Commands::Trusted) => {}
     }
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }

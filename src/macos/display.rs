@@ -52,7 +52,7 @@ impl Displays {
         let request = self.requests.fetch_add(1, Ordering::Relaxed) + 1;
         let (builtin, requests) = (self.builtin.clone(), self.requests.clone());
         let when = DispatchTime::try_from(SETTLE).unwrap_or(DispatchTime::NOW);
-        let _ = self.queue.after(when, move || {
+        let scheduled = self.queue.after(when, move || {
             if requests.load(Ordering::Relaxed) == request {
                 match builtin.brightness() {
                     Ok(level) => follow(level),
@@ -60,6 +60,9 @@ impl Displays {
                 }
             }
         });
+        if let Err(error) = scheduled {
+            tracing::warn!(?error, "scheduling a brightness sync");
+        }
     }
 }
 

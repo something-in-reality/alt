@@ -67,7 +67,7 @@ pub struct Decision {
     pub effect: Option<Effect>,
 }
 
-/// The platform's own settings, which the configuration is relative to.
+/// The platform's settings that configuration values are compared with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct System {
     pub natural_scroll: bool,
@@ -97,8 +97,8 @@ impl Decision {
 }
 
 impl Config {
-    /// Decides an event: a bound key is dropped and runs its command; a held key repeats the
-    /// command only when it repeats.
+    /// Decides an event: a bound press drops the key and runs its command, and an autorepeat
+    /// reruns commands that repeat.
     pub fn decide(&self, event: Event, system: &System, cx: &impl Context) -> Decision {
         match event {
             Event::Press { combo, repeat } => {

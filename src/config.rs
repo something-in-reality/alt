@@ -1,9 +1,11 @@
 //! The configuration file, in sway's section names.
 
+pub mod watch;
+
 use std::{
     collections::{BTreeMap, HashMap},
     fs, io,
-    path::Path,
+    path::{Path, PathBuf},
     str::FromStr,
 };
 
@@ -60,8 +62,8 @@ pub struct App {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("reading {path}")]
-    Read { path: String, source: io::Error },
+    #[error("reading {}", path.display())]
+    Read { path: PathBuf, source: io::Error },
     #[error(transparent)]
     Parse(#[from] toml::de::Error),
 }
@@ -69,7 +71,7 @@ pub enum Error {
 impl Config {
     pub fn load(path: &Path) -> Result<Self, Error> {
         let text = fs::read_to_string(path).map_err(|source| Error::Read {
-            path: path.display().to_string(),
+            path: path.to_owned(),
             source,
         })?;
         Ok(text.parse()?)
