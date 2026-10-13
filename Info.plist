@@ -16,6 +16,8 @@
 	<string>@version@</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Bindings connect and disconnect paired Bluetooth devices.</string>
 	<key>LSUIElement</key>
 	<true/>
 </dict>
