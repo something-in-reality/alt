@@ -1,4 +1,4 @@
-# Example configuration; ~/.config/accessibility/config.toml.
+# Example configuration; ~/.config/alt/config.toml.
 # Keys are W3C KeyboardEvent.code names in snake_case, letters and digits by character; modifiers
 # are ctrl, alt, shift and super. An action is "namespace.verb", or { namespace.verb = argument }.
 

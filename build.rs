@@ -18,7 +18,7 @@ fn main() -> io::Result<()> {
     fs::create_dir_all(&dir)?;
     let mut command = cli::Cli::command();
     for shell in [Shell::Bash, Shell::Zsh] {
-        clap_complete::generate_to(shell, &mut command, "accessibility", &dir)?;
+        clap_complete::generate_to(shell, &mut command, "alt", &dir)?;
     }
     Ok(())
 }

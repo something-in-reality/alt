@@ -9,9 +9,9 @@ use clap::{Parser, Subcommand};
 /// Without a command, checks the configuration and reports the app: its process, signature and
 /// Accessibility permission.
 #[derive(Parser)]
-#[command(name = "accessibility", version)]
+#[command(name = "alt", version)]
 pub struct Cli {
-    /// Defaults to $XDG_CONFIG_HOME/accessibility/config.toml.
+    /// Defaults to $XDG_CONFIG_HOME/alt/config.toml.
     #[arg(long, global = true)]
     pub config: Option<PathBuf>,
     #[command(subcommand)]

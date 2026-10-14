@@ -21,7 +21,7 @@ pub enum Error {
     NotPaired(Device),
     #[error("Bluetooth error {1:#x} with {0}")]
     Bluetooth(Device, i32),
-    #[error("accessibility error {0}")]
+    #[error("Accessibility API error {0}")]
     Accessibility(i32),
     #[error("no built-in display")]
     NoBuiltinDisplay,

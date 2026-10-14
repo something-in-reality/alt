@@ -26,10 +26,10 @@ pub use self::{
 
 /// The environment variable that makes the binary report, by its exit status, whether it may
 /// observe and post input.
-pub const TRUST_CHECK: &str = "ACCESSIBILITY_TRUST_CHECK";
+pub const TRUST_CHECK: &str = "ALT_TRUST_CHECK";
 
 /// The app's bundle identifier, which also names its log subsystem.
-pub const IDENTIFIER: &str = "something-in-reality.accessibility";
+pub const IDENTIFIER: &str = "something-in-reality.alt";
 
 /// Streams this app's log, debug messages included, replacing this process.
 pub fn log() -> io::Result<Infallible> {

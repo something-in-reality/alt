@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleExecutable</key>
-	<string>accessibility</string>
+	<string>alt</string>
 	<key>CFBundleDisplayName</key>
-	<string>Accessibility</string>
+	<string>Alt</string>
 	<key>CFBundleIdentifier</key>
 	<string>@identifier@</string>
 	<key>CFBundleName</key>
-	<string>Accessibility</string>
+	<string>Alt</string>
 	<key>CFBundleShortVersionString</key>
 	<string>@version@</string>
 	<key>CFBundleVersion</key>

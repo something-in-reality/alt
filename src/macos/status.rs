@@ -12,7 +12,7 @@ use libproc::{
     processes::{ProcFilter, pids_by_type},
 };
 
-/// The app at ~/Applications/Accessibility.app, where the home-manager module installs it.
+/// The app at ~/Applications/Alt.app, where the home-manager module installs it.
 pub struct Status {
     pid: Option<u32>,
     bundle: PathBuf,
@@ -24,8 +24,8 @@ impl Status {
     pub fn read() -> Self {
         let bundle = etcetera::home_dir()
             .unwrap_or_default()
-            .join("Applications/Accessibility.app");
-        let executable = bundle.join("Contents/MacOS/accessibility");
+            .join("Applications/Alt.app");
+        let executable = bundle.join("Contents/MacOS/alt");
         let pid = pids_by_type(ProcFilter::All)
             .unwrap_or_default()
             .into_iter()

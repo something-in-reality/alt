@@ -26,7 +26,7 @@ pub struct Mac {
 impl Dispatcher {
     pub fn new() -> Result<Self, Error> {
         Ok(Self {
-            actions: DispatchQueue::new("accessibility.actions", DispatchQueueAttr::SERIAL),
+            actions: DispatchQueue::new("alt.actions", DispatchQueueAttr::SERIAL),
             displays: Displays::new()?,
         })
     }

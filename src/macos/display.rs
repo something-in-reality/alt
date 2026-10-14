@@ -41,7 +41,7 @@ struct Builtin {
 impl Displays {
     pub fn new() -> Result<Self, Error> {
         Ok(Self {
-            queue: DispatchQueue::new("accessibility.display", DispatchQueueAttr::SERIAL),
+            queue: DispatchQueue::new("alt.display", DispatchQueueAttr::SERIAL),
             builtin: Arc::new(Builtin::load()?),
             requests: Arc::default(),
         })

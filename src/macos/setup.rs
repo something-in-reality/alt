@@ -1,4 +1,4 @@
-//! `accessibility setup`: a checklist of the machine's one-time steps, each with its current
+//! `alt setup`: a checklist of the machine's one-time steps, each with its current
 //! status, run in order once selected.
 
 use std::{
@@ -193,7 +193,7 @@ pub fn setup() -> anyhow::Result<()> {
 fn flash(half: Half, firmware: &Path) -> anyhow::Result<()> {
     let bytes = fs::read(firmware).with_context(|| {
         format!(
-            "reading {}; enable services.accessibility.glove80",
+            "reading {}; enable services.alt.glove80",
             firmware.display()
         )
     })?;
@@ -242,11 +242,11 @@ fn state_dir() -> Option<PathBuf> {
     etcetera::choose_base_strategy()
         .ok()?
         .state_dir()
-        .map(|dir| dir.join("accessibility"))
+        .map(|dir| dir.join("alt"))
 }
 
 fn data_dir() -> Option<PathBuf> {
     etcetera::choose_base_strategy()
         .ok()
-        .map(|strategy| strategy.data_dir().join("accessibility"))
+        .map(|strategy| strategy.data_dir().join("alt"))
 }
