@@ -13,12 +13,11 @@ dependencies = [
 
 [[package]]
 name = "alt"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "anyhow",
  "arc-swap",
  "bitflags 2.13.2",
- "blake3",
  "block2",
  "clap",
  "clap_complete",

@@ -1,13 +1,7 @@
 //! `alt setup`: a checklist of the machine's one-time steps, each with its current
 //! status, run in order once selected.
 
-use std::{
-    fmt, fs,
-    path::{Path, PathBuf},
-    process::Command,
-    thread,
-    time::Duration,
-};
+use std::{fmt, fs, path::Path, process::Command, thread, time::Duration};
 
 use anyhow::{Context, bail};
 use inquire::MultiSelect;
@@ -32,7 +26,7 @@ enum Step {
 /// A step and whether it is done, as the checklist shows it.
 struct Row {
     step: Step,
-    done: bool,
+    done: Option<bool>,
 }
 
 const POLL: Duration = Duration::from_millis(250);
@@ -53,11 +47,6 @@ impl Half {
             Self::Right => "'",
         }
     }
-
-    /// The file holding the firmware hash this half was last flashed with.
-    fn flashed(self) -> anyhow::Result<PathBuf> {
-        Ok(paths::state_dir()?.join(format!("glove80-{self}")))
-    }
 }
 
 impl Step {
@@ -67,15 +56,11 @@ impl Step {
         Self::Glove80(Half::Right),
     ];
 
-    fn done(self, firmware: Option<&str>) -> bool {
+    /// Whether the step is done, where the system can tell: the keyboard's firmware is unknown.
+    fn done(self) -> Option<bool> {
         match self {
-            Self::Permission => status::daemon().is_some_and(status::trusted),
-            Self::Glove80(half) => firmware.is_some_and(|hash| {
-                half.flashed()
-                    .ok()
-                    .and_then(|path| fs::read_to_string(path).ok())
-                    .is_some_and(|flashed| flashed.trim() == hash)
-            }),
+            Self::Permission => Some(status::daemon().is_some_and(status::trusted)),
+            Self::Glove80(_) => None,
         }
     }
 
@@ -107,24 +92,28 @@ impl fmt::Display for Step {
 
 impl fmt::Display for Row {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {}", if self.done { "✓" } else { "·" }, self.step)
+        let mark = match self.done {
+            Some(true) => "✓",
+            Some(false) => "✗",
+            None => "·",
+        };
+        write!(f, "{mark} {}", self.step)
     }
 }
 
-/// Shows each step's status, preselects those not done, and runs the selection in order.
+/// Shows each step's status, preselects those known to be undone, and runs the selection in order.
 pub fn setup() -> anyhow::Result<()> {
     let firmware = paths::data_dir()?.join("glove80.uf2");
-    let hash = fs::read(&firmware)
-        .ok()
-        .map(|bytes| blake3::hash(&bytes).to_hex().to_string());
     let rows: Vec<Row> = Step::ALL
         .into_iter()
         .map(|step| Row {
             step,
-            done: step.done(hash.as_deref()),
+            done: step.done(),
         })
         .collect();
-    let pending: Vec<usize> = (0..rows.len()).filter(|&i| !rows[i].done).collect();
+    let pending: Vec<usize> = (0..rows.len())
+        .filter(|&i| rows[i].done == Some(false))
+        .collect();
     let selected = MultiSelect::new("Set up this machine:", rows)
         .with_default(&pending)
         .prompt()?;
@@ -135,7 +124,7 @@ pub fn setup() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Copies `firmware` to `half`'s bootloader volume and records its hash once the half restarts.
+/// Copies `firmware` to `half`'s bootloader volume and waits for the half to restart.
 fn flash(half: Half, firmware: &Path) -> anyhow::Result<()> {
     let bytes = fs::read(firmware).with_context(|| {
         format!(
@@ -171,10 +160,6 @@ fn flash(half: Half, firmware: &Path) -> anyhow::Result<()> {
         Err(error) => bail!("copying the firmware: {error}"),
         Ok(()) => bail!("the {half} half kept its bootloader volume after the copy"),
     }
-    let path = half.flashed()?;
-    fs::create_dir_all(path.parent().unwrap_or(&path))?;
-    fs::write(&path, blake3::hash(&bytes).to_hex().as_str())
-        .with_context(|| format!("writing {}", path.display()))?;
     println!("Flashed the {half} half.");
     Ok(())
 }

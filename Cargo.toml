@@ -1,6 +1,6 @@
 [package]
 name = "alt"
-version = "0.10.1"
+version = "0.10.2"
 edition = "2024"
 description = "Keyboard, pointer, window and display behaviour outside the terminal"
 publish = false
@@ -16,7 +16,6 @@ members = ["signing-identity"]
 anyhow = "1"
 arc-swap = "1.9"
 bitflags = "2.9"
-blake3 = "1.8"
 clap = { version = "4.6", features = ["derive"] }
 edit = { version = "0.1", features = ["quoted-env"] }
 etcetera = "0.10"
