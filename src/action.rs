@@ -3,7 +3,7 @@
 //! An action is written `"namespace.verb"` when the verb takes nothing, and
 //! `{ namespace.verb = argument }` when it does.
 
-use std::{convert::Infallible, fmt, iter, process, str::FromStr, sync::Arc, thread};
+use std::{fmt, iter, process, sync::Arc, thread};
 
 use serde::{
     Deserialize, Deserializer,
@@ -69,11 +69,13 @@ pub enum Side {
 }
 
 /// A display: `builtin`, `next` or `previous` from left to right, or an external display's name.
-#[derive(Clone, Debug, PartialEq, Eq, DeserializeFromStr)]
+#[derive(Clone, Debug, PartialEq, Eq, DeserializeFromStr, strum::Display, strum::EnumString)]
+#[strum(serialize_all = "lowercase")]
 pub enum Screen {
     Builtin,
     Next,
     Previous,
+    #[strum(default)]
     Named(String),
 }
 
@@ -148,30 +150,6 @@ impl Action {
             self,
             Self::Keyboard(_) | Self::Window(Window::Resize(_)) | Self::Media(_) | Self::Display(_)
         )
-    }
-}
-
-impl FromStr for Screen {
-    type Err = Infallible;
-
-    fn from_str(s: &str) -> Result<Self, Infallible> {
-        Ok(match s {
-            "builtin" => Self::Builtin,
-            "next" => Self::Next,
-            "previous" => Self::Previous,
-            name => Self::Named(name.to_owned()),
-        })
-    }
-}
-
-impl fmt::Display for Screen {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Builtin => "builtin",
-            Self::Next => "next",
-            Self::Previous => "previous",
-            Self::Named(name) => name,
-        })
     }
 }
 
@@ -353,6 +331,9 @@ mod tests {
             [Action::Window(Window::Display(Screen::Builtin))]
         );
         assert!(!Action::Window(Window::Tile(Side::Right)).repeats());
+        for screen in ["builtin", "next", "MSI MP341CQ"] {
+            assert_eq!(screen.parse::<Screen>().unwrap().to_string(), screen);
+        }
     }
 
     #[test]

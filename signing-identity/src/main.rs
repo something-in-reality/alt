@@ -9,7 +9,6 @@
 use std::{env, fs, io::Write, str::FromStr};
 
 use anyhow::{Context, bail};
-use der::{Any, DateTime, EncodePem, asn1::ObjectIdentifier, pem::LineEnding};
 use p256::{
     SecretKey,
     ecdsa::{
@@ -18,16 +17,17 @@ use p256::{
     },
     pkcs8::EncodePrivateKey,
 };
-use spki::{AlgorithmIdentifierOwned, DynSignatureAlgorithmIdentifier, SubjectPublicKeyInfo};
 use x509_cert::{
     builder::{Builder, CertificateBuilder, profile::BuilderProfile},
     certificate::TbsCertificate,
+    der::{Any, DateTime, EncodePem, asn1::ObjectIdentifier, pem::LineEnding},
     ext::{
         Extension,
         pkix::{BasicConstraints, ExtendedKeyUsage, KeyUsage, KeyUsages},
     },
     name::Name,
     serial_number::SerialNumber,
+    spki::{self, AlgorithmIdentifierOwned, DynSignatureAlgorithmIdentifier, SubjectPublicKeyInfo},
     time::{Time, Validity},
 };
 use zeroize::Zeroizing;
@@ -92,10 +92,10 @@ fn main() -> anyhow::Result<()> {
         bail!("usage: signing-identity <seed-file>");
     };
     let text = Zeroizing::new(fs::read(&path).context("reading the seed")?);
-    let mut seed = Zeroizing::new([0; 32]);
-    hex::decode_to_slice(text.trim_ascii(), seed.as_mut_slice())
-        .context("the seed is 64 hex characters")?;
-    let key = Zeroizing::new(blake3::derive_key(CONTEXT, seed.as_slice()));
+    let seed = Zeroizing::new(
+        blake3::Hash::from_hex(text.trim_ascii()).context("the seed is 64 hex characters")?,
+    );
+    let key = Zeroizing::new(blake3::derive_key(CONTEXT, seed.as_bytes()));
     let secret = SecretKey::from_slice(key.as_slice())?;
     let signer = SigningKey::from(&secret);
 

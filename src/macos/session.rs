@@ -26,9 +26,7 @@ use objc2_core_graphics::{CGEvent, CGEventField, CGEventType};
 use objc2_foundation::{NSString, NSUserDefaults};
 
 use super::{
-    Error, app, keymap,
-    permission::Permission,
-    synth,
+    Error, app, keymap, synth,
     system_key::{SYSTEM_DEFINED, SystemKey},
     tap::Tap,
 };
@@ -101,7 +99,6 @@ impl Input for Session {
         )
         .ok_or(Error::Tap)?;
         watchdog();
-        Permission::Granted.record();
         tracing::info!("running");
         CFRunLoop::run();
         Err(Error::RunLoopEnded)
@@ -143,7 +140,6 @@ fn trust() -> Result<(), Error> {
     if unsafe { AXIsProcessTrustedWithOptions(Some(prompt.as_opaque())) } {
         return Ok(());
     }
-    Permission::Waiting.record();
     tracing::info!("waiting for Accessibility permission");
     let exe = env::current_exe()?;
     loop {

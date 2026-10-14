@@ -1,6 +1,6 @@
 [package]
 name = "alt"
-version = "0.10.0"
+version = "0.10.1"
 edition = "2024"
 description = "Keyboard, pointer, window and display behaviour outside the terminal"
 publish = false
@@ -25,6 +25,7 @@ keycode = "1"
 notify-debouncer-full = "0.7"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_with = "3.24"
+strum = { version = "0.28", features = ["derive"] }
 thiserror = "2"
 toml = "1.1"
 tracing = "0.1"

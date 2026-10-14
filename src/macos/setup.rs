@@ -12,11 +12,12 @@ use std::{
 use anyhow::{Context, bail};
 use inquire::MultiSelect;
 
-use super::permission::Permission;
+use super::status;
 use crate::paths;
 
 /// A half of the Glove80, which flashes from its own bootloader volume.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::Display)]
+#[strum(serialize_all = "lowercase")]
 enum Half {
     Left,
     Right,
@@ -59,15 +60,6 @@ impl Half {
     }
 }
 
-impl fmt::Display for Half {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Left => "left",
-            Self::Right => "right",
-        })
-    }
-}
-
 impl Step {
     const ALL: [Self; 3] = [
         Self::Permission,
@@ -77,7 +69,7 @@ impl Step {
 
     fn done(self, firmware: Option<&str>) -> bool {
         match self {
-            Self::Permission => Permission::read() == Some(Permission::Granted),
+            Self::Permission => status::daemon().is_some_and(status::trusted),
             Self::Glove80(half) => firmware.is_some_and(|hash| {
                 half.flashed()
                     .ok()
@@ -94,7 +86,7 @@ impl Step {
                     .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
                     .status()?;
                 println!("Turn on Accessibility; waiting for the app to start with it.");
-                while Permission::read() != Some(Permission::Granted) {
+                while !status::daemon().is_some_and(status::trusted) {
                     thread::sleep(POLL);
                 }
                 Ok(())
