@@ -102,7 +102,8 @@ fn follow(level: f32) {
     };
     for mut monitor in monitors {
         let result = monitor.get_vcp_feature(LUMINANCE).and_then(|value| {
-            let target = (level * f32::from(value.maximum())).round() as u16;
+            let maximum = f32::from(value.maximum());
+            let target = (level * maximum).round().clamp(0.0, maximum) as u16;
             monitor.set_vcp_feature(LUMINANCE, target)
         });
         if let Err(error) = result {

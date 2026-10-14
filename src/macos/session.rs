@@ -10,10 +10,10 @@ use std::{
     rc::Rc,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use dispatch2::DispatchQueue;
@@ -27,7 +27,7 @@ use objc2_foundation::{NSString, NSUserDefaults};
 
 use super::{
     Error, app, keymap,
-    setup::Permission,
+    permission::Permission,
     synth,
     system_key::{SYSTEM_DEFINED, SystemKey},
     tap::Tap,
@@ -42,14 +42,14 @@ use crate::{
 /// The login session.
 pub struct Session;
 
-/// Running applications; NSWorkspace's notifications keep the front one current, so a decision
-/// reads it without a call to another process.
-pub struct Apps {
+/// The front application, which NSWorkspace's notifications keep current, so a decision reads it
+/// without a call to another process.
+pub struct Front {
     front: RefCell<Option<AppId>>,
 }
 
 impl Input for Session {
-    type Context = Apps;
+    type Context = Front;
     type Error = Error;
 
     fn system(&self) -> System {
@@ -60,9 +60,9 @@ impl Input for Session {
         }
     }
 
-    fn run(self, handle: impl Fn(Event, &Apps) -> Verdict + 'static) -> Result<Infallible, Error> {
+    fn run(self, handle: impl Fn(Event, &Front) -> Verdict + 'static) -> Result<Infallible, Error> {
         trust()?;
-        let apps = Rc::new(Apps {
+        let apps = Rc::new(Front {
             front: RefCell::new(app::front()),
         });
         let handle = Rc::new(handle);
@@ -108,7 +108,7 @@ impl Input for Session {
     }
 }
 
-impl Context for Apps {
+impl Context for Front {
     fn front(&self) -> Option<AppId> {
         self.front.borrow().clone()
     }
@@ -118,16 +118,14 @@ impl Context for Apps {
 /// holds all input while its callback runs, and the tap ends with the process.
 fn watchdog() {
     const LIMIT: Duration = Duration::from_secs(2);
-    let beat = Arc::new(AtomicU64::new(0));
+    let alive = Arc::new(AtomicBool::new(true));
     thread::spawn(move || {
-        let start = Instant::now();
-        let elapsed = || start.elapsed().as_millis() as u64;
         loop {
-            let main = beat.clone();
-            let now = elapsed();
-            DispatchQueue::main().exec_async(move || main.store(now, Ordering::Relaxed));
-            thread::sleep(LIMIT / 2);
-            if elapsed() - beat.load(Ordering::Relaxed) > LIMIT.as_millis() as u64 {
+            alive.store(false, Ordering::Relaxed);
+            let beat = alive.clone();
+            DispatchQueue::main().exec_async(move || beat.store(true, Ordering::Relaxed));
+            thread::sleep(LIMIT);
+            if !alive.load(Ordering::Relaxed) {
                 tracing::error!("the main thread stopped responding; exiting to release input");
                 process::exit(1);
             }

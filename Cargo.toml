@@ -1,9 +1,13 @@
 [package]
 name = "alt"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2024"
 description = "Keyboard, pointer, window and display behaviour outside the terminal"
 publish = false
+
+# The macOS app bundle; the identifier names its permissions and log subsystem.
+[package.metadata.bundle]
+identifier = "something-in-reality.alt"
 
 [workspace]
 members = ["signing-identity"]
@@ -29,6 +33,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 [build-dependencies]
 clap = { version = "4.6", features = ["derive"] }
 clap_complete = "4.6"
+toml = "1.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
@@ -37,6 +42,7 @@ ddc-macos = "0.2"
 dispatch2 = "0.3"
 libloading = "0.8"
 libproc = "0.14"
+num_enum = "0.7"
 objc2 = "0.6"
 objc2-app-kit = "0.3"
 objc2-application-services = "0.3"

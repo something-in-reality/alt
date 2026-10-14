@@ -51,6 +51,9 @@ pub enum Window {
     Resize(Size),
     /// Puts the window in full screen; a window in full screen stays there.
     Fullscreen,
+    /// Puts the window in one half of a full-screen split, through the application's Window menu;
+    /// macOS then offers the other windows for the other half.
+    FullscreenTile(Side),
     /// Fills one half of the window's display.
     Tile(Side),
     /// Moves the window to a display, at the same place relative to the display.
@@ -336,10 +339,11 @@ mod tests {
     #[test]
     fn window_actions_read_their_targets() {
         assert_eq!(
-            command(r#"["window.fullscreen", { window.tile = "left" }, { window.display = "MSI MP341CQ" }]"#)
+            command(r#"["window.fullscreen", { window.fullscreen_tile = "right" }, { window.tile = "left" }, { window.display = "MSI MP341CQ" }]"#)
                 .unwrap(),
             [
                 Action::Window(Window::Fullscreen),
+                Action::Window(Window::FullscreenTile(Side::Right)),
                 Action::Window(Window::Tile(Side::Left)),
                 Action::Window(Window::Display(Screen::Named("MSI MP341CQ".to_owned()))),
             ]

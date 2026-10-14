@@ -52,10 +52,7 @@ pub fn watch(
                             config.store(Arc::new(loaded));
                             tracing::info!(path = %path.display(), "reloaded");
                         }
-                        Err(error) => tracing::error!(
-                            error = %format_args!("{:#}", anyhow::Error::from(error)),
-                            "keeping the last configuration"
-                        ),
+                        Err(error) => tracing::error!(%error, "keeping the last configuration"),
                     }
                 }
             }

@@ -6,6 +6,7 @@ mod desktop;
 mod display;
 mod error;
 mod keymap;
+mod permission;
 mod session;
 pub mod setup;
 pub mod status;
@@ -21,7 +22,7 @@ use objc2_application_services::AXIsProcessTrusted;
 pub use self::{
     desktop::{Dispatcher, Mac},
     error::Error,
-    session::{Apps, Session},
+    session::{Front, Session},
 };
 
 /// The environment variable that makes the binary report, by its exit status, whether it may
@@ -29,7 +30,7 @@ pub use self::{
 pub const TRUST_CHECK: &str = "ALT_TRUST_CHECK";
 
 /// The app's bundle identifier, which also names its log subsystem.
-pub const IDENTIFIER: &str = "something-in-reality.alt";
+pub const IDENTIFIER: &str = env!("BUNDLE_IDENTIFIER");
 
 /// Streams this app's log, debug messages included, replacing this process.
 pub fn log() -> io::Result<Infallible> {

@@ -56,11 +56,10 @@ pub enum Verdict {
 /// Work the platform does in response.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
-    /// Runs `command`; window actions act on `app`'s window, or without one on the focused window.
-    Run {
-        command: Command,
-        app: Option<AppId>,
-    },
+    /// Runs a bound command; window actions act on the focused window.
+    Run(Command),
+    /// Runs a launching application's command; window actions act on its window once it opens.
+    Launch { app: AppId, command: Command },
     /// External displays follow the built-in display's brightness.
     SyncBrightness,
 }
@@ -83,22 +82,17 @@ pub trait Context {
 }
 
 impl Decision {
-    const PASS: Self = Self::verdict(Verdict::Pass);
+    const PASS: Self = Self {
+        verdict: Verdict::Pass,
+        effect: None,
+    };
+}
 
-    const fn verdict(verdict: Verdict) -> Self {
+impl From<Verdict> for Decision {
+    fn from(verdict: Verdict) -> Self {
         Self {
             verdict,
             effect: None,
-        }
-    }
-
-    fn run(command: &Command) -> Self {
-        Self {
-            verdict: Verdict::Drop,
-            effect: Some(Effect::Run {
-                command: command.clone(),
-                app: None,
-            }),
         }
     }
 }
@@ -108,38 +102,33 @@ impl Config {
     /// reruns commands that repeat.
     pub fn decide(&self, event: Event, system: &System, cx: &impl Context) -> Decision {
         match event {
-            Event::Press { combo, repeat } => {
-                let front = cx.front();
-                match self.bindsym(front.as_ref(), &combo) {
-                    None => Decision::PASS,
-                    Some(command) if repeat && !command.repeats() => {
-                        Decision::verdict(Verdict::Drop)
-                    }
-                    Some(command) => Decision::run(command),
-                }
-            }
-            Event::Scroll { continuous: false } => match self.input.pointer.natural_scroll {
-                Some(wanted) if wanted != system.natural_scroll => {
-                    Decision::verdict(Verdict::Reverse)
+            Event::Press { combo, repeat } => match self.bindsym(cx.front().as_ref(), &combo) {
+                None => Decision::PASS,
+                Some(command) => Decision {
+                    verdict: Verdict::Drop,
+                    effect: (!repeat || command.repeats()).then(|| Effect::Run(command.clone())),
+                },
+            },
+            Event::Scroll { continuous } => match self.input.pointer.natural_scroll {
+                Some(wanted) if !continuous && wanted != system.natural_scroll => {
+                    Verdict::Reverse.into()
                 }
                 _ => Decision::PASS,
             },
-            Event::Scroll { continuous: true } => Decision::PASS,
-            Event::BrightnessKey if self.display.sync_brightness => Decision {
-                verdict: Verdict::Pass,
-                effect: Some(Effect::SyncBrightness),
+            Event::BrightnessKey => Decision {
+                effect: self
+                    .display
+                    .sync_brightness
+                    .then_some(Effect::SyncBrightness),
+                ..Decision::PASS
             },
-            Event::BrightnessKey => Decision::PASS,
             Event::Launch(app) => Decision {
-                verdict: Verdict::Pass,
                 effect: self
                     .app_id
                     .get(&app)
                     .and_then(|config| config.on_launch.clone())
-                    .map(|command| Effect::Run {
-                        command,
-                        app: Some(app),
-                    }),
+                    .map(|command| Effect::Launch { app, command }),
+                ..Decision::PASS
             },
         }
     }
@@ -229,7 +218,7 @@ mod tests {
         for (front, combo, expected) in triggers {
             let decision = press(front, combo, false);
             assert_eq!(decision.verdict, Verdict::Drop, "{combo} in {front}");
-            let Some(Effect::Run { command, .. }) = decision.effect else {
+            let Some(Effect::Run(command)) = decision.effect else {
                 panic!("{combo} in {front} runs nothing");
             };
             assert_eq!(command.as_ref(), actions(expected), "{combo} in {front}");
@@ -239,15 +228,9 @@ mod tests {
     #[test]
     fn held_keys_repeat_only_incremental_commands() {
         let resize = press(GHOSTTY, "super+home", true);
-        assert!(matches!(resize.effect, Some(Effect::Run { .. })));
-        assert_eq!(
-            press(GHOSTTY, "home", true),
-            Decision::verdict(Verdict::Drop)
-        );
-        assert_eq!(
-            press(GHOSTTY, "alt+b", true),
-            Decision::verdict(Verdict::Drop)
-        );
+        assert!(matches!(resize.effect, Some(Effect::Run(_))));
+        assert_eq!(press(GHOSTTY, "home", true), Decision::from(Verdict::Drop));
+        assert_eq!(press(GHOSTTY, "alt+b", true), Decision::from(Verdict::Drop));
     }
 
     #[test]
@@ -275,19 +258,19 @@ mod tests {
     #[test]
     fn launches_run_their_application_command() {
         let launch = |app| config().decide(Event::Launch(AppId::from(app)), &NATURAL, &Front(None));
-        let Some(Effect::Run { command, app }) = launch("com.apple.Music").effect else {
+        let Some(Effect::Launch { app, command }) = launch("com.apple.Music").effect else {
             panic!("launching Music runs nothing");
         };
         assert_eq!(
             command.as_ref(),
             actions(r#"{ app.kill = "com.apple.Music" }"#)
         );
-        assert_eq!(app, Some(AppId::from("com.apple.Music")));
-        let Some(Effect::Run { command, app }) = launch(FIREFOX).effect else {
+        assert_eq!(app, AppId::from("com.apple.Music"));
+        let Some(Effect::Launch { app, command }) = launch(FIREFOX).effect else {
             panic!("launching Firefox runs nothing");
         };
         assert_eq!(command.as_ref(), actions(r#""window.fullscreen""#));
-        assert_eq!(app, Some(AppId::from(FIREFOX)));
+        assert_eq!(app, AppId::from(FIREFOX));
         assert_eq!(launch("com.apple.TextEdit"), Decision::PASS);
     }
 

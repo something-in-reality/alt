@@ -21,17 +21,19 @@ pub enum Error {
     NotPaired(Device),
     #[error("Bluetooth error {1:#x} with {0}")]
     Bluetooth(Device, i32),
-    #[error("Accessibility API error {0}")]
-    Accessibility(i32),
+    #[error("Accessibility API error {code} on {name}")]
+    Accessibility { name: String, code: i32 },
     #[error("no display {0}")]
     NoDisplay(Screen),
+    #[error("no menu item {0}")]
+    NoMenuItem(String),
     #[error("the window is in full screen")]
     Fullscreen,
     #[error("no built-in display")]
     NoBuiltinDisplay,
     #[error("DisplayServices error {0}")]
     DisplayServices(i32),
-    #[error("loading DisplayServices")]
+    #[error("loading DisplayServices: {0}")]
     Library(#[from] libloading::Error),
     #[error(transparent)]
     Io(#[from] std::io::Error),

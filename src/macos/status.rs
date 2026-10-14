@@ -6,7 +6,7 @@ use std::{
     process::Command,
 };
 
-use super::setup::Permission;
+use super::permission::Permission;
 use libproc::{
     libproc::proc_pid::pidpath,
     processes::{ProcFilter, pids_by_type},

@@ -40,14 +40,12 @@ impl Dispatcher {
 impl Output for Dispatcher {
     fn apply(&self, effect: Effect) {
         match effect {
-            Effect::Run { command, app } => {
-                let queue = if app.is_some() {
-                    &self.launches
-                } else {
-                    &self.actions
-                };
-                queue.exec_async(move || autoreleasepool(|_| execute(&command, app)));
-            }
+            Effect::Run(command) => self
+                .actions
+                .exec_async(move || autoreleasepool(|_| execute(&command, None))),
+            Effect::Launch { app, command } => self
+                .launches
+                .exec_async(move || autoreleasepool(|_| execute(&command, Some(app)))),
             Effect::SyncBrightness => self.displays.sync(),
         }
     }
@@ -61,7 +59,7 @@ fn execute(command: &Command, app: Option<AppId>) {
     };
     for action in command {
         if let Err(error) = action.perform(&mac) {
-            tracing::warn!(error = %format_args!("{:#}", anyhow::Error::from(error)), ?action, "performing");
+            tracing::warn!(%error, ?action, "performing");
         }
     }
 }

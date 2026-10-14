@@ -10,12 +10,11 @@ use std::{
 use alt::{
     config::{Config, edit::edit, watch::watch},
     macos::{self, Dispatcher, Session, status::Status},
-    platform,
+    paths, platform,
 };
 use anyhow::Context as _;
 use arc_swap::ArcSwap;
 use clap::Parser;
-use etcetera::BaseStrategy;
 use tracing_oslog::OsLogger;
 use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -44,19 +43,13 @@ fn main() -> anyhow::Result<ExitCode> {
     let cli = Cli::parse();
     let path = match cli.config {
         Some(path) => path,
-        None => etcetera::choose_base_strategy()?
-            .config_dir()
-            .join("alt/config.toml"),
+        None => paths::config_file()?,
     };
     match cli.command {
         None => {
             match Config::load(&path) {
                 Ok(_) => println!("config:     {}", path.display()),
-                Err(error) => println!(
-                    "config:     {}: {:#}",
-                    path.display(),
-                    anyhow::Error::from(error)
-                ),
+                Err(error) => println!("config:     {}: {error}", path.display()),
             }
             println!("{}", Status::read());
         }

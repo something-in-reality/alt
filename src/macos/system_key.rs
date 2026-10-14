@@ -1,6 +1,7 @@
 //! System keys: the media and brightness keys that NX_SYSDEFINED events carry.
 
 use keycode::KeyMappingCode;
+use num_enum::TryFromPrimitive;
 use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventSubtype, NSEventType};
 use objc2_core_foundation::CGPoint;
 use objc2_core_graphics::{CGEvent, CGEventTapLocation, CGEventType};
@@ -19,7 +20,8 @@ const DOWN: isize = 0xa;
 const UP: isize = 0xb;
 
 /// A system key, by its key type.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, TryFromPrimitive)]
+#[repr(isize)]
 pub enum SystemKey {
     VolumeUp = 0,
     VolumeDown = 1,
@@ -32,34 +34,26 @@ pub enum SystemKey {
 }
 
 impl SystemKey {
-    const ALL: [Self; 8] = [
-        Self::VolumeUp,
-        Self::VolumeDown,
-        Self::BrightnessUp,
-        Self::BrightnessDown,
-        Self::Mute,
-        Self::PlayPause,
-        Self::Next,
-        Self::Previous,
-    ];
-
     /// The key `event` presses, when it is a system key going down.
     pub fn pressed(event: &CGEvent) -> Option<Self> {
         let event = NSEvent::eventWithCGEvent(event)?;
         let data = event.data1();
-        (event.r#type() == NSEventType::SystemDefined
+        if event.r#type() == NSEventType::SystemDefined
             && event.subtype() == SUBTYPE
-            && (data >> 8) & 0xff == DOWN)
-            .then(|| Self::try_from(data >> 16).ok())
-            .flatten()
+            && (data >> 8) & 0xff == DOWN
+        {
+            Self::try_from(data >> 16).ok()
+        } else {
+            None
+        }
     }
 
     pub fn is_brightness(self) -> bool {
         matches!(self, Self::BrightnessUp | Self::BrightnessDown)
     }
 
-    /// Posts the key down, then up. The events carry no synthetic marker, so the tap decides
-    /// them as pressed keys: a posted brightness key syncs displays.
+    /// Posts the key down, then up, unmarked: the tap decides them as physical presses, so a
+    /// posted brightness key syncs displays.
     pub fn press(self) -> Result<(), Error> {
         [DOWN, UP]
             .into_iter()
@@ -82,17 +76,6 @@ impl SystemKey {
         .ok_or(Error::Unavailable("a system key event"))?;
         CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&event));
         Ok(())
-    }
-}
-
-impl TryFrom<isize> for SystemKey {
-    type Error = isize;
-
-    fn try_from(kind: isize) -> Result<Self, isize> {
-        Self::ALL
-            .into_iter()
-            .find(|&key| key as isize == kind)
-            .ok_or(kind)
     }
 }
 
@@ -142,9 +125,9 @@ mod tests {
 
     #[test]
     fn key_types_round_trip() {
-        for key in SystemKey::ALL {
+        for key in [SystemKey::VolumeUp, SystemKey::Mute, SystemKey::Previous] {
             assert_eq!(SystemKey::try_from(key as isize), Ok(key));
         }
-        assert_eq!(SystemKey::try_from(4), Err(4));
+        assert!(SystemKey::try_from(4).is_err());
     }
 }

@@ -63,17 +63,17 @@ pub struct App {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("reading {}", path.display())]
-    Read { path: PathBuf, source: io::Error },
+    #[error("reading {}: {error}", path.display())]
+    Read { path: PathBuf, error: io::Error },
     #[error(transparent)]
     Parse(#[from] toml::de::Error),
 }
 
 impl Config {
     pub fn load(path: &Path) -> Result<Self, Error> {
-        let text = fs::read_to_string(path).map_err(|source| Error::Read {
+        let text = fs::read_to_string(path).map_err(|error| Error::Read {
             path: path.to_owned(),
-            source,
+            error,
         })?;
         Ok(text.parse()?)
     }

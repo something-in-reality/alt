@@ -65,16 +65,17 @@ in
     # Copies and signs the app when the package changes, then restarts the agent onto it.
     home.activation.alt = lib.hm.dag.entryAfter [ "setupLaunchAgents" ] ''
       app=${service.package}/Applications/Alt.app
-      if [ "$(cat ${lib.escapeShellArg signed} 2>/dev/null)" != "$app" ]; then
-        run rm -rf ${lib.escapeShellArg bundle}
-        run cp -R "$app" ${lib.escapeShellArg bundle}
-        run chmod -R u+w ${lib.escapeShellArg bundle}
+      bundle=${lib.escapeShellArg bundle}
+      signed=${lib.escapeShellArg signed}
+      if [ "$(cat "$signed" 2>/dev/null)" != "$app" ]; then
+        run rm -rf "$bundle"
+        run cp -R "$app" "$bundle"
+        run chmod -R u+w "$bundle"
         ${service.package}/bin/signing-identity ${lib.escapeShellArg service.seed} \
-          | run ${lib.getExe pkgs.rcodesign} sign --timestamp-url none --pem-file /dev/stdin \
-            ${lib.escapeShellArg bundle}
-        run mkdir -p ${lib.escapeShellArg (dirOf signed)}
-        echo "$app" | run --quiet tee ${lib.escapeShellArg signed} >/dev/null
-        run /bin/launchctl kickstart -k gui/$(/usr/bin/id -u)/${agent} || true
+          | run ${lib.getExe pkgs.rcodesign} sign --timestamp-url none --pem-file /dev/stdin "$bundle"
+        run mkdir -p "$(dirname "$signed")"
+        echo "$app" | run --quiet tee "$signed" >/dev/null
+        run /bin/launchctl kickstart -k "gui/$(/usr/bin/id -u)/${agent}" || true
       fi
     '';
 

@@ -5,21 +5,15 @@ use std::{
     fmt, fs,
     path::{Path, PathBuf},
     process::Command,
-    str::FromStr,
     thread,
     time::Duration,
 };
 
 use anyhow::{Context, bail};
-use etcetera::BaseStrategy;
 use inquire::MultiSelect;
 
-/// Whether the daemon holds its Accessibility permission, as it last recorded.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Permission {
-    Waiting,
-    Granted,
-}
+use super::permission::Permission;
+use crate::paths;
 
 /// A half of the Glove80, which flashes from its own bootloader volume.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,47 +36,6 @@ struct Row {
 
 const POLL: Duration = Duration::from_millis(250);
 
-impl Permission {
-    fn path() -> Option<PathBuf> {
-        state_dir().map(|dir| dir.join("permission"))
-    }
-
-    pub fn read() -> Option<Self> {
-        fs::read_to_string(Self::path()?).ok()?.trim().parse().ok()
-    }
-
-    /// Records the permission for `setup` and `status`; a failure only logs.
-    pub fn record(self) {
-        let written = Self::path()
-            .context("no state directory")
-            .and_then(|path| write(&path, &self.to_string()));
-        if let Err(error) = written {
-            tracing::warn!(error = %format_args!("{error:#}"), "recording the permission");
-        }
-    }
-}
-
-impl fmt::Display for Permission {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Waiting => "waiting",
-            Self::Granted => "granted",
-        })
-    }
-}
-
-impl FromStr for Permission {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, String> {
-        match s {
-            "waiting" => Ok(Self::Waiting),
-            "granted" => Ok(Self::Granted),
-            _ => Err(format!("unknown permission `{s}`")),
-        }
-    }
-}
-
 impl Half {
     /// The bootloader volume this half mounts.
     fn volume(self) -> &'static Path {
@@ -100,9 +53,9 @@ impl Half {
         }
     }
 
-    /// The firmware hash this half was last flashed with.
-    fn flashed(self) -> Option<PathBuf> {
-        state_dir().map(|dir| dir.join(format!("glove80-{self}")))
+    /// The file holding the firmware hash this half was last flashed with.
+    fn flashed(self) -> anyhow::Result<PathBuf> {
+        Ok(paths::state_dir()?.join(format!("glove80-{self}")))
     }
 }
 
@@ -127,6 +80,7 @@ impl Step {
             Self::Permission => Permission::read() == Some(Permission::Granted),
             Self::Glove80(half) => firmware.is_some_and(|hash| {
                 half.flashed()
+                    .ok()
                     .and_then(|path| fs::read_to_string(path).ok())
                     .is_some_and(|flashed| flashed.trim() == hash)
             }),
@@ -167,7 +121,7 @@ impl fmt::Display for Row {
 
 /// Shows each step's status, preselects those not done, and runs the selection in order.
 pub fn setup() -> anyhow::Result<()> {
-    let firmware = data_dir().context("no data directory")?.join("glove80.uf2");
+    let firmware = paths::data_dir()?.join("glove80.uf2");
     let hash = fs::read(&firmware)
         .ok()
         .map(|bytes| blake3::hash(&bytes).to_hex().to_string());
@@ -225,28 +179,10 @@ fn flash(half: Half, firmware: &Path) -> anyhow::Result<()> {
         Err(error) => bail!("copying the firmware: {error}"),
         Ok(()) => bail!("the {half} half kept its bootloader volume after the copy"),
     }
-    let path = half.flashed().context("no state directory")?;
-    write(&path, blake3::hash(&bytes).to_hex().as_str())?;
+    let path = half.flashed()?;
+    fs::create_dir_all(path.parent().unwrap_or(&path))?;
+    fs::write(&path, blake3::hash(&bytes).to_hex().as_str())
+        .with_context(|| format!("writing {}", path.display()))?;
     println!("Flashed the {half} half.");
     Ok(())
-}
-
-fn write(path: &Path, contents: &str) -> anyhow::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(path, contents).with_context(|| format!("writing {}", path.display()))
-}
-
-fn state_dir() -> Option<PathBuf> {
-    etcetera::choose_base_strategy()
-        .ok()?
-        .state_dir()
-        .map(|dir| dir.join("alt"))
-}
-
-fn data_dir() -> Option<PathBuf> {
-    etcetera::choose_base_strategy()
-        .ok()
-        .map(|strategy| strategy.data_dir().join("alt"))
 }

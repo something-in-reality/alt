@@ -9,4 +9,5 @@ pub mod config;
 pub mod event;
 #[cfg(target_os = "macos")]
 pub mod macos;
+pub mod paths;
 pub mod platform;

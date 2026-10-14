@@ -1,5 +1,5 @@
-//! Edits the configuration as `visudo` edits sudoers: a copy opens in the editor, and only a
-//! valid copy replaces the file.
+//! Edits a copy of the configuration in $VISUAL or $EDITOR; the copy replaces the file once it
+//! parses.
 
 use std::{fs, path::Path};
 

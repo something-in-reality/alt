@@ -10,16 +10,18 @@ use dispatch2::DispatchQueue;
 use objc2::MainThreadMarker;
 use objc2_app_kit::NSScreen;
 use objc2_application_services::{AXError, AXUIElement, AXValue, AXValueType};
-use objc2_core_foundation::{CFBoolean, CFRetained, CFString, CFType, CGPoint, CGRect, CGSize};
+use objc2_core_foundation::{
+    CFArray, CFBoolean, CFRetained, CFString, CFType, CGPoint, CGRect, CGSize,
+};
 use objc2_core_graphics::CGDisplayIsBuiltin;
 use objc2_foundation::{NSNumber, NSString};
 
 use super::{Error, app};
 use crate::action::{AppId, Screen, Side, Window};
 
-/// How long an application's window may take to open after its launch notification.
-const OPENING: Duration = Duration::from_secs(15);
+/// Polls for an application's window, which opens after its launch notification: 15 seconds.
 const POLL: Duration = Duration::from_millis(250);
+const ATTEMPTS: u32 = 60;
 
 /// A display, its frames in the Accessibility API's coordinates: points from the primary display's
 /// top-left corner.
@@ -32,24 +34,42 @@ struct Display {
 
 /// Performs `action` on `app`'s main window once it opens, or without `app` on the focused window.
 pub fn perform(action: &Window, app: Option<&AppId>) -> Result<(), Error> {
-    let window = match app {
-        Some(app) => main_window(app)?,
-        None => focused_window()?,
+    let (application, window) = match app {
+        Some(app) => {
+            let application = unsafe { AXUIElement::new_application(app::pid(app)?) };
+            let window = main_window(&application)?;
+            (application, window)
+        }
+        None => {
+            let system = unsafe { AXUIElement::new_system_wide() };
+            let application = element(attribute(&system, "AXFocusedApplication")?)?;
+            let window = element(attribute(&application, "AXFocusedWindow")?)?;
+            (application, window)
+        }
     };
     match action {
         Window::Resize(change) => {
             let size = frame(&window)?.size;
-            set_size(
-                &window,
-                CGSize {
-                    width: size.width + f64::from(change.width),
-                    height: size.height + f64::from(change.height),
-                },
-            )
+            let size = CGSize {
+                width: size.width + f64::from(change.width),
+                height: size.height + f64::from(change.height),
+            };
+            put(&window, "AXSize", AXValueType::CGSize, &size)
         }
         Window::Fullscreen => set(&window, "AXFullScreen", CFBoolean::new(true)),
+        Window::FullscreenTile(side) => press_menu(
+            &application,
+            &[
+                "Window",
+                "Full Screen Tile",
+                match side {
+                    Side::Left => "Left of Screen",
+                    Side::Right => "Right of Screen",
+                },
+            ],
+        ),
         Window::Tile(side) => {
-            let displays = displays();
+            let displays = displays()?;
             let visible = displays[containing(&displays, frame(&window)?)].visible;
             let width = visible.size.width / 2.0;
             let x = match side {
@@ -58,62 +78,55 @@ pub fn perform(action: &Window, app: Option<&AppId>) -> Result<(), Error> {
             };
             set_frame(
                 &window,
-                CGRect {
-                    origin: CGPoint {
-                        x,
-                        y: visible.origin.y,
-                    },
-                    size: CGSize {
-                        width,
-                        height: visible.size.height,
-                    },
-                },
+                CGRect::new(
+                    CGPoint::new(x, visible.origin.y),
+                    CGSize::new(width, visible.size.height),
+                ),
             )
         }
         Window::Display(screen) => {
-            if attribute(&window, "AXFullScreen")
+            let fullscreen = attribute(&window, "AXFullScreen")
                 .ok()
                 .and_then(|value| value.downcast::<CFBoolean>().ok())
-                .is_some_and(|value| value.as_bool())
-            {
+                .is_some_and(|value| value.as_bool());
+            if fullscreen {
                 return Err(Error::Fullscreen);
             }
-            let displays = displays();
+            let displays = displays()?;
             let current = frame(&window)?;
             let from = containing(&displays, current);
             let to = select(&displays, from, screen)?;
-            let (from, to) = (displays[from].visible, displays[to].visible);
-            // The same place relative to each display's visible frame.
-            let scale =
-                |value: f64, from_origin: f64, from_length: f64, to_origin: f64, to_length: f64| {
-                    to_origin + (value - from_origin) / from_length * to_length
-                };
             set_frame(
                 &window,
-                CGRect {
-                    origin: CGPoint {
-                        x: scale(
-                            current.origin.x,
-                            from.origin.x,
-                            from.size.width,
-                            to.origin.x,
-                            to.size.width,
-                        ),
-                        y: scale(
-                            current.origin.y,
-                            from.origin.y,
-                            from.size.height,
-                            to.origin.y,
-                            to.size.height,
-                        ),
-                    },
-                    size: CGSize {
-                        width: current.size.width / from.size.width * to.size.width,
-                        height: current.size.height / from.size.height * to.size.height,
-                    },
-                },
+                remap(current, displays[from].visible, displays[to].visible),
             )
         }
+    }
+}
+
+/// `rect` at the same place relative to `to` as it is to `from`.
+fn remap(rect: CGRect, from: CGRect, to: CGRect) -> CGRect {
+    let x = |value: f64| (value - from.origin.x) / from.size.width * to.size.width;
+    let y = |value: f64| (value - from.origin.y) / from.size.height * to.size.height;
+    CGRect::new(
+        CGPoint::new(
+            to.origin.x + x(rect.origin.x),
+            to.origin.y + y(rect.origin.y),
+        ),
+        CGSize::new(
+            rect.size.width / from.size.width * to.size.width,
+            rect.size.height / from.size.height * to.size.height,
+        ),
+    )
+}
+
+fn check(name: &str, error: AXError) -> Result<(), Error> {
+    match error {
+        AXError::Success => Ok(()),
+        error => Err(Error::Accessibility {
+            name: name.to_owned(),
+            code: error.0,
+        }),
     }
 }
 
@@ -122,82 +135,119 @@ fn attribute(element: &AXUIElement, name: &str) -> Result<CFRetained<CFType>, Er
     let error = unsafe {
         element.copy_attribute_value(&CFString::from_str(name), NonNull::from(&mut value))
     };
-    match NonNull::new(value.cast_mut()) {
-        Some(value) if error == AXError::Success => Ok(unsafe { CFRetained::from_raw(value) }),
-        _ => Err(Error::Accessibility(error.0)),
-    }
+    check(name, error)?;
+    NonNull::new(value.cast_mut())
+        .map(|value| unsafe { CFRetained::from_raw(value) })
+        .ok_or(Error::Unavailable("an attribute value"))
 }
 
 fn set(element: &AXUIElement, name: &str, value: &CFType) -> Result<(), Error> {
-    match unsafe { element.set_attribute_value(&CFString::from_str(name), value) } {
-        AXError::Success => Ok(()),
-        error => Err(Error::Accessibility(error.0)),
+    check(name, unsafe {
+        element.set_attribute_value(&CFString::from_str(name), value)
+    })
+}
+
+/// Reads the `AXValue` attribute `name` as a `T` of `kind`.
+fn get<T: Default>(element: &AXUIElement, name: &str, kind: AXValueType) -> Result<T, Error> {
+    let value = attribute(element, name)?
+        .downcast::<AXValue>()
+        .map_err(|_| Error::Unavailable("an AXValue"))?;
+    let mut out = T::default();
+    if unsafe { value.value(kind, NonNull::from(&mut out).cast()) } {
+        Ok(out)
+    } else {
+        Err(Error::Unavailable("an AXValue"))
     }
 }
 
-fn window(element: CFRetained<CFType>) -> Result<CFRetained<AXUIElement>, Error> {
-    element
-        .downcast::<AXUIElement>()
-        .map_err(|_| Error::Unavailable("the window"))
+/// Sets the `AXValue` attribute `name` to `value`, a `T` of `kind`.
+fn put<T>(element: &AXUIElement, name: &str, kind: AXValueType, value: &T) -> Result<(), Error> {
+    let value = unsafe { AXValue::new(kind, NonNull::from(value).cast()) }
+        .ok_or(Error::Unavailable("an AXValue"))?;
+    set(element, name, &value)
 }
 
-fn focused_window() -> Result<CFRetained<AXUIElement>, Error> {
-    let system = unsafe { AXUIElement::new_system_wide() };
-    let app = attribute(&system, "AXFocusedApplication")?
+fn element(value: CFRetained<CFType>) -> Result<CFRetained<AXUIElement>, Error> {
+    value
         .downcast::<AXUIElement>()
-        .map_err(|_| Error::Unavailable("the focused application"))?;
-    window(attribute(&app, "AXFocusedWindow")?)
+        .map_err(|_| Error::Unavailable("an accessibility element"))
 }
 
-/// `app`'s main window, waiting for it to open.
-fn main_window(app: &AppId) -> Result<CFRetained<AXUIElement>, Error> {
-    let element = unsafe { AXUIElement::new_application(app::pid(app)?) };
-    for _ in 0..OPENING.div_duration_f64(POLL) as u32 {
-        if let Ok(main) = attribute(&element, "AXMainWindow") {
-            return window(main);
+/// The main window of `application`, waiting for it to open.
+fn main_window(application: &AXUIElement) -> Result<CFRetained<AXUIElement>, Error> {
+    for _ in 0..ATTEMPTS {
+        if let Ok(main) = attribute(application, "AXMainWindow") {
+            return element(main);
         }
         thread::sleep(POLL);
     }
     Err(Error::Unavailable("the application's window"))
 }
 
-fn value<T: Default>(element: &AXUIElement, name: &str, kind: AXValueType) -> Result<T, Error> {
-    let value = attribute(element, name)?
-        .downcast::<AXValue>()
-        .map_err(|_| Error::Unavailable("a window attribute"))?;
-    let mut out = T::default();
-    match unsafe { value.value(kind, NonNull::from(&mut out).cast()) } {
-        true => Ok(out),
-        false => Err(Error::Unavailable("a window attribute")),
-    }
-}
-
 fn frame(window: &AXUIElement) -> Result<CGRect, Error> {
-    Ok(CGRect {
-        origin: value(window, "AXPosition", AXValueType::CGPoint)?,
-        size: value(window, "AXSize", AXValueType::CGSize)?,
-    })
-}
-
-fn set_size(window: &AXUIElement, size: CGSize) -> Result<(), Error> {
-    let value = unsafe { AXValue::new(AXValueType::CGSize, NonNull::from(&size).cast()) }
-        .ok_or(Error::Unavailable("a size value"))?;
-    set(window, "AXSize", &value)
+    Ok(CGRect::new(
+        get(window, "AXPosition", AXValueType::CGPoint)?,
+        get(window, "AXSize", AXValueType::CGSize)?,
+    ))
 }
 
 /// Sets the size, the position, then the size again: applications limit a size to the display
 /// the window is on.
 fn set_frame(window: &AXUIElement, frame: CGRect) -> Result<(), Error> {
-    let position =
-        unsafe { AXValue::new(AXValueType::CGPoint, NonNull::from(&frame.origin).cast()) }
-            .ok_or(Error::Unavailable("a position value"))?;
-    set_size(window, frame.size)?;
-    set(window, "AXPosition", &position)?;
-    set_size(window, frame.size)
+    put(window, "AXSize", AXValueType::CGSize, &frame.size)?;
+    put(window, "AXPosition", AXValueType::CGPoint, &frame.origin)?;
+    put(window, "AXSize", AXValueType::CGSize, &frame.size)
+}
+
+fn children(parent: &AXUIElement) -> Vec<CFRetained<AXUIElement>> {
+    attribute(parent, "AXChildren")
+        .ok()
+        .and_then(|value| value.downcast::<CFArray>().ok())
+        .map(|array| {
+            // SAFETY: AXChildren holds accessibility elements, which are CF types.
+            let array = unsafe { CFRetained::cast_unchecked::<CFArray<CFType>>(array) };
+            array
+                .iter()
+                .filter_map(|child| child.downcast::<AXUIElement>().ok())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn title(item: &AXUIElement) -> Option<String> {
+    let title = attribute(item, "AXTitle")
+        .ok()?
+        .downcast::<CFString>()
+        .ok()?;
+    Some(title.to_string())
+}
+
+/// Presses the item at `path` in `application`'s menu bar: a menu bar item, then its menu's items,
+/// each item holding its menu as its only child.
+fn press_menu(application: &AXUIElement, path: &[&str]) -> Result<(), Error> {
+    let missing = || Error::NoMenuItem(path.join(" > "));
+    let bar = element(attribute(application, "AXMenuBar")?)?;
+    let mut items = children(&bar);
+    let mut item = None;
+    for name in path {
+        let found = items
+            .into_iter()
+            .find(|item| title(item).as_deref() == Some(*name))
+            .ok_or_else(missing)?;
+        items = children(&found)
+            .first()
+            .map(|menu| children(menu))
+            .unwrap_or_default();
+        item = Some(found);
+    }
+    let item = item.ok_or_else(missing)?;
+    check("AXPress", unsafe {
+        item.perform_action(&CFString::from_str("AXPress"))
+    })
 }
 
 /// The displays from left to right, read on the main thread, which owns AppKit's screens.
-fn displays() -> Vec<Display> {
+fn displays() -> Result<Vec<Display>, Error> {
     let mut displays = Vec::new();
     DispatchQueue::main().exec_sync(|| {
         let mtm = MainThreadMarker::new().expect("the main queue runs on the main thread");
@@ -205,12 +255,11 @@ fn displays() -> Vec<Display> {
         let height = screens
             .firstObject()
             .map_or(0.0, |primary| primary.frame().size.height);
-        let flip = |rect: CGRect| CGRect {
-            origin: CGPoint {
-                x: rect.origin.x,
-                y: height - rect.origin.y - rect.size.height,
-            },
-            size: rect.size,
+        let flip = |rect: CGRect| {
+            CGRect::new(
+                CGPoint::new(rect.origin.x, height - rect.origin.y - rect.size.height),
+                rect.size,
+            )
         };
         displays = screens
             .iter()
@@ -226,8 +275,11 @@ fn displays() -> Vec<Display> {
             })
             .collect();
     });
+    if displays.is_empty() {
+        return Err(Error::Unavailable("a display"));
+    }
     displays.sort_by(|a, b| a.frame.origin.x.total_cmp(&b.frame.origin.x));
-    displays
+    Ok(displays)
 }
 
 /// The display holding the centre of `frame`, or the leftmost.
@@ -255,4 +307,19 @@ fn select(displays: &[Display], from: usize, screen: &Screen) -> Result<usize, E
         Screen::Named(name) => displays.iter().position(|display| &display.name == name),
     }
     .ok_or_else(|| Error::NoDisplay(screen.clone()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remapped_frames_keep_their_place() {
+        let laptop = CGRect::new(CGPoint::new(0.0, 25.0), CGSize::new(1512.0, 950.0));
+        let external = CGRect::new(CGPoint::new(1512.0, -200.0), CGSize::new(3440.0, 1415.0));
+        let left_half = CGRect::new(laptop.origin, CGSize::new(756.0, 950.0));
+        let moved = remap(left_half, laptop, external);
+        assert_eq!(moved.origin, external.origin);
+        assert_eq!(moved.size, CGSize::new(1720.0, 1415.0));
+    }
 }

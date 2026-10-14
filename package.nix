@@ -5,7 +5,7 @@
 }:
 let
   manifest = (lib.importTOML ./Cargo.toml).package;
-  identifier = "something-in-reality.alt";
+  inherit (manifest.metadata.bundle) identifier;
 in
 rustPlatform.buildRustPackage {
   pname = manifest.name;
@@ -31,8 +31,7 @@ rustPlatform.buildRustPackage {
 
   nativeBuildInputs = [ installShellFiles ];
 
-  # An app bundle gives the binary a bundle identifier for its permissions; bin/signing-identity
-  # derives the identity that signs it.
+  # The app bundle gives the binary a bundle identifier for its permissions.
   postInstall = ''
     app=$out/Applications/Alt.app/Contents
     install -D $out/bin/alt $app/MacOS/alt
