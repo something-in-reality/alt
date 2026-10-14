@@ -1,6 +1,6 @@
 [package]
 name = "alt"
-version = "0.11.1"
+version = "0.12.0"
 edition = "2024"
 description = "Keyboard, pointer, window and display behaviour outside the terminal"
 publish = false
@@ -20,6 +20,7 @@ clap = { version = "4.6", features = ["derive"] }
 edit = { version = "0.1", features = ["quoted-env"] }
 etcetera = "0.10"
 inquire = "0.9"
+jiff = "0.2"
 keycode = "1"
 notify-debouncer-full = "0.7"
 serde = { version = "1", features = ["derive", "rc"] }
@@ -42,6 +43,7 @@ ddc-macos = "0.2"
 dispatch2 = "0.3"
 libloading = "0.8"
 libproc = "0.14"
+notify-rust = "4.18"
 num_enum = "0.7"
 objc2 = "0.6"
 objc2-app-kit = "0.3"

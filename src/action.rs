@@ -3,7 +3,7 @@
 //! An action is written `"namespace.verb"` when the verb takes nothing, and
 //! `{ namespace.verb = argument }` when it does.
 
-use std::{fmt, iter, process, sync::Arc, thread};
+use std::{fmt, io, iter, process, sync::Arc, thread};
 
 use serde::{
     Deserialize, Deserializer,
@@ -19,6 +19,9 @@ use crate::{combo::Combo, platform::Desktop};
 pub enum Action {
     /// Runs a command with `sh -c`.
     Exec(String),
+    /// Shows a notification of a `strftime` template filled with the local time, such as
+    /// `%H:%M`; text without fields shows as written.
+    Notify(String),
     Keyboard(Keyboard),
     App(App),
     Window(Window),
@@ -125,7 +128,8 @@ pub struct AppId(Arc<str>);
 pub struct Device(String);
 
 impl Action {
-    /// Performs the action: `exec` here, every other namespace on `desktop`.
+    /// Performs the action: `exec` here, every other namespace on `desktop`, to which `notify`
+    /// passes its filled template.
     pub fn perform<D: Desktop>(&self, desktop: &D) -> Result<(), D::Error> {
         match self {
             Self::Exec(command) => {
@@ -135,6 +139,10 @@ impl Action {
                 thread::spawn(move || child.wait());
                 Ok(())
             }
+            Self::Notify(template) => desktop.notify(
+                &jiff::fmt::strtime::format(template, &jiff::Zoned::now())
+                    .map_err(io::Error::other)?,
+            ),
             Self::Keyboard(action) => desktop.keyboard(action),
             Self::App(action) => desktop.app(action),
             Self::Window(action) => desktop.window(action),
@@ -331,6 +339,10 @@ mod tests {
             [Action::Window(Window::Display(Screen::Builtin))]
         );
         assert!(!Action::Window(Window::Tile(Side::Right)).repeats());
+        assert_eq!(
+            command(r#"{ notify = "%H:%M" }"#).unwrap(),
+            [Action::Notify("%H:%M".to_owned())]
+        );
         for screen in ["builtin", "next", "MSI MP341CQ"] {
             assert_eq!(screen.parse::<Screen>().unwrap().to_string(), screen);
         }

@@ -35,6 +35,8 @@ pub trait Desktop {
     fn bluetooth(&self, action: &Bluetooth) -> Result<(), Self::Error>;
     fn media(&self, action: Media) -> Result<(), Self::Error>;
     fn display(&self, action: Display) -> Result<(), Self::Error>;
+    /// Shows a notification of `text`.
+    fn notify(&self, text: &str) -> Result<(), Self::Error>;
 }
 
 /// A sink for effects; it applies them asynchronously, in order, and logs failures.

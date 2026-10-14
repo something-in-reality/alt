@@ -29,6 +29,8 @@ pub struct Mac {
 
 impl Dispatcher {
     pub fn new() -> Result<Self, Error> {
+        // Notifications show as the app.
+        notify_rust::set_application(super::IDENTIFIER).map_err(notify_rust::error::Error::from)?;
         Ok(Self {
             actions: DispatchQueue::new("alt.actions", DispatchQueueAttr::SERIAL),
             launches: DispatchQueue::new("alt.launches", DispatchQueueAttr::SERIAL),
@@ -95,5 +97,10 @@ impl Desktop for Mac {
 
     fn display(&self, action: Display) -> Result<(), Error> {
         SystemKey::from(action).press()
+    }
+
+    fn notify(&self, text: &str) -> Result<(), Error> {
+        notify_rust::Notification::new().summary(text).show()?;
+        Ok(())
     }
 }
