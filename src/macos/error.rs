@@ -13,6 +13,8 @@ pub enum Error {
     RunLoopEnded,
     #[error("{0} is not running")]
     NotRunning(AppId),
+    #[error("{0} is not installed")]
+    NotInstalled(AppId),
     #[error("{0} has no Mac key code")]
     Unmapped(Key),
     #[error("could not create {0}")]

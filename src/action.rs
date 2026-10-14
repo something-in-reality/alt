@@ -37,7 +37,7 @@ pub enum Keyboard {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum App {
-    /// Brings a running application to the front.
+    /// Brings an application to the front, launching it when it is not running.
     Focus(AppId),
     /// Force-quits a running application.
     Kill(AppId),

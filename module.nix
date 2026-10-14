@@ -14,7 +14,6 @@ self:
 let
   service = config.services.alt;
   bundle = "${config.home.homeDirectory}/Applications/Alt.app";
-  signed = "${config.xdg.stateHome}/alt/signed";
   agent = config.launchd.agents.alt.config.Label;
 in
 {
@@ -62,19 +61,21 @@ in
 
     home.packages = [ service.package ];
 
-    # Copies and signs the app when the package changes, then restarts the agent onto it.
+    # Copies and signs the app unless the installed executable is this build, by its Mach-O UUID,
+    # and validly signed; then restarts the agent onto it.
     home.activation.alt = lib.hm.dag.entryAfter [ "setupLaunchAgents" ] ''
       app=${service.package}/Applications/Alt.app
       bundle=${lib.escapeShellArg bundle}
-      signed=${lib.escapeShellArg signed}
-      if [ "$(cat "$signed" 2>/dev/null)" != "$app" ]; then
+      uuid() {
+        ${lib.getExe' pkgs.cctools "otool"} -l "$1/Contents/MacOS/alt" 2>/dev/null \
+          | ${lib.getExe pkgs.gawk} '$1 == "uuid" { print $2; exit }'
+      }
+      if [ "$(uuid "$bundle")" != "$(uuid "$app")" ] || ! /usr/bin/codesign --verify "$bundle" 2>/dev/null; then
         run rm -rf "$bundle"
         run cp -R "$app" "$bundle"
         run chmod -R u+w "$bundle"
         ${service.package}/bin/signing-identity ${lib.escapeShellArg service.seed} \
           | run ${lib.getExe pkgs.rcodesign} sign --timestamp-url none --pem-file /dev/stdin "$bundle"
-        run mkdir -p "$(dirname "$signed")"
-        echo "$app" | run --quiet tee "$signed" >/dev/null
         run /bin/launchctl kickstart -k "gui/$(/usr/bin/id -u)/${agent}" || true
       fi
     '';

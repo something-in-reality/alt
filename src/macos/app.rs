@@ -35,12 +35,13 @@ pub fn front() -> Option<AppId> {
         .and_then(id)
 }
 
-/// Brings a running application to the front.
+/// Brings an application to the front, launching it when it is not running.
 pub fn focus(app: &AppId) -> Result<(), Error> {
-    let url = running(app)?
-        .bundleURL()
-        .ok_or_else(|| Error::NotRunning(app.clone()))?;
-    NSWorkspace::sharedWorkspace().openApplicationAtURL_configuration_completionHandler(
+    let workspace = NSWorkspace::sharedWorkspace();
+    let url = workspace
+        .URLForApplicationWithBundleIdentifier(&NSString::from_str(app.as_ref()))
+        .ok_or_else(|| Error::NotInstalled(app.clone()))?;
+    workspace.openApplicationAtURL_configuration_completionHandler(
         &url,
         &NSWorkspaceOpenConfiguration::new(),
         None,
