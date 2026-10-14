@@ -31,7 +31,7 @@ pub trait Desktop {
 
     fn keyboard(&self, action: &Keyboard) -> Result<(), Self::Error>;
     fn app(&self, action: &App) -> Result<(), Self::Error>;
-    fn window(&self, action: Window) -> Result<(), Self::Error>;
+    fn window(&self, action: &Window) -> Result<(), Self::Error>;
     fn bluetooth(&self, action: &Bluetooth) -> Result<(), Self::Error>;
     fn media(&self, action: Media) -> Result<(), Self::Error>;
     fn display(&self, action: Display) -> Result<(), Self::Error>;

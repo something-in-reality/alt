@@ -3,12 +3,14 @@
 //! An action is written `"namespace.verb"` when the verb takes nothing, and
 //! `{ namespace.verb = argument }` when it does.
 
-use std::{fmt, iter, process, sync::Arc, thread};
+use std::{convert::Infallible, fmt, iter, process, str::FromStr, sync::Arc, thread};
 
 use serde::{
     Deserialize, Deserializer,
     de::{self, IntoDeserializer},
 };
+
+use serde_with::DeserializeFromStr;
 
 use crate::{combo::Combo, platform::Desktop};
 
@@ -41,11 +43,35 @@ pub enum App {
     Kill(AppId),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+/// Acts on the focused window, or in an application's `on_launch` command, on its window.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Window {
-    /// Changes the focused window's size; in split view this moves the divider.
+    /// Changes the window's size; in split view this moves the divider.
     Resize(Size),
+    /// Puts the window in full screen; a window in full screen stays there.
+    Fullscreen,
+    /// Fills one half of the window's display.
+    Tile(Side),
+    /// Moves the window to a display, at the same place relative to the display.
+    Display(Screen),
+}
+
+/// A half of a display.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Side {
+    Left,
+    Right,
+}
+
+/// A display: `builtin`, `next` or `previous` from left to right, or an external display's name.
+#[derive(Clone, Debug, PartialEq, Eq, DeserializeFromStr)]
+pub enum Screen {
+    Builtin,
+    Next,
+    Previous,
+    Named(String),
 }
 
 /// A signed change in width and height, in points; an omitted side stays.
@@ -106,7 +132,7 @@ impl Action {
             }
             Self::Keyboard(action) => desktop.keyboard(action),
             Self::App(action) => desktop.app(action),
-            Self::Window(action) => desktop.window(*action),
+            Self::Window(action) => desktop.window(action),
             Self::Bluetooth(action) => desktop.bluetooth(action),
             Self::Media(action) => desktop.media(*action),
             Self::Display(action) => desktop.display(*action),
@@ -117,8 +143,32 @@ impl Action {
     pub fn repeats(&self) -> bool {
         matches!(
             self,
-            Self::Keyboard(_) | Self::Window(_) | Self::Media(_) | Self::Display(_)
+            Self::Keyboard(_) | Self::Window(Window::Resize(_)) | Self::Media(_) | Self::Display(_)
         )
+    }
+}
+
+impl FromStr for Screen {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Infallible> {
+        Ok(match s {
+            "builtin" => Self::Builtin,
+            "next" => Self::Next,
+            "previous" => Self::Previous,
+            name => Self::Named(name.to_owned()),
+        })
+    }
+}
+
+impl fmt::Display for Screen {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Builtin => "builtin",
+            Self::Next => "next",
+            Self::Previous => "previous",
+            Self::Named(name) => name,
+        })
     }
 }
 
@@ -281,6 +331,24 @@ mod tests {
                 Action::Keyboard(Keyboard::Type("✓".to_owned()))
             ]
         );
+    }
+
+    #[test]
+    fn window_actions_read_their_targets() {
+        assert_eq!(
+            command(r#"["window.fullscreen", { window.tile = "left" }, { window.display = "MSI MP341CQ" }]"#)
+                .unwrap(),
+            [
+                Action::Window(Window::Fullscreen),
+                Action::Window(Window::Tile(Side::Left)),
+                Action::Window(Window::Display(Screen::Named("MSI MP341CQ".to_owned()))),
+            ]
+        );
+        assert_eq!(
+            command(r#"{ window.display = "builtin" }"#).unwrap(),
+            [Action::Window(Window::Display(Screen::Builtin))]
+        );
+        assert!(!Action::Window(Window::Tile(Side::Right)).repeats());
     }
 
     #[test]

@@ -22,6 +22,13 @@ end = { app.focus = "com.mitchellh.ghostty" }
 "alt+b" = { bluetooth.toggle = "f8-8f-07-40-54-34" }
 "super+home" = { window.resize = { width = 100 } }
 "super+end" = { window.resize = { width = -100 } }
+"ctrl+alt+arrow_left" = { window.tile = "left" }
+"ctrl+alt+arrow_right" = { window.tile = "right" }
+"ctrl+alt+arrow_up" = "window.fullscreen"
+"ctrl+alt+arrow_down" = { window.display = "next" }
+
+[app_id."org.nixos.firefox"]
+on_launch = "window.fullscreen"
 
 [app_id."org.nixos.firefox".bindsym]
 page_up = { keyboard.press = "ctrl+shift+tab" }
@@ -33,3 +40,6 @@ backquote = { keyboard.press = "ctrl+z" }
 
 [app_id."com.apple.Music"]
 on_launch = { app.kill = "com.apple.Music" }
+
+[app_id."com.mitchellh.ghostty"]
+on_launch = "window.fullscreen"

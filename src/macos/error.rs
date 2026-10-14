@@ -1,7 +1,7 @@
 //! Errors of the macOS platform.
 
 use crate::{
-    action::{AppId, Device},
+    action::{AppId, Device, Screen},
     combo::Key,
 };
 
@@ -23,6 +23,10 @@ pub enum Error {
     Bluetooth(Device, i32),
     #[error("Accessibility API error {0}")]
     Accessibility(i32),
+    #[error("no display {0}")]
+    NoDisplay(Screen),
+    #[error("the window is in full screen")]
+    Fullscreen,
     #[error("no built-in display")]
     NoBuiltinDisplay,
     #[error("DisplayServices error {0}")]

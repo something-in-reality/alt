@@ -7,26 +7,31 @@ use super::{
     Error, app, bluetooth, display::Displays, synth::Source, system_key::SystemKey, window,
 };
 use crate::{
-    action::{App, Bluetooth, Command, Display, Keyboard, Media, Window},
+    action::{App, AppId, Bluetooth, Command, Display, Keyboard, Media, Window},
     event::Effect,
     platform::{Desktop, Output},
 };
 
-/// Applies effects: commands in order on one serial queue, brightness on another.
+/// Applies effects: commands in order on one serial queue, launched applications' commands on
+/// another, as they wait for their windows, and brightness on a third.
 pub struct Dispatcher {
     actions: DispatchRetained<DispatchQueue>,
+    launches: DispatchRetained<DispatchQueue>,
     displays: Displays,
 }
 
-/// Performs actions, posting input from a private event source.
+/// Performs actions, posting input from a private event source; window actions act on `app`'s
+/// window, or without one on the focused window.
 pub struct Mac {
     source: Source,
+    app: Option<AppId>,
 }
 
 impl Dispatcher {
     pub fn new() -> Result<Self, Error> {
         Ok(Self {
             actions: DispatchQueue::new("alt.actions", DispatchQueueAttr::SERIAL),
+            launches: DispatchQueue::new("alt.launches", DispatchQueueAttr::SERIAL),
             displays: Displays::new()?,
         })
     }
@@ -35,18 +40,23 @@ impl Dispatcher {
 impl Output for Dispatcher {
     fn apply(&self, effect: Effect) {
         match effect {
-            Effect::Run(command) => self
-                .actions
-                .exec_async(move || autoreleasepool(|_| execute(&command))),
+            Effect::Run { command, app } => {
+                let queue = if app.is_some() {
+                    &self.launches
+                } else {
+                    &self.actions
+                };
+                queue.exec_async(move || autoreleasepool(|_| execute(&command, app)));
+            }
             Effect::SyncBrightness => self.displays.sync(),
         }
     }
 }
 
 /// Runs each action of `command`, logging those that fail.
-fn execute(command: &Command) {
+fn execute(command: &Command, app: Option<AppId>) {
     let mac = match Source::new() {
-        Ok(source) => Mac { source },
+        Ok(source) => Mac { source, app },
         Err(error) => return tracing::warn!(%error, "creating an event source"),
     };
     for action in command {
@@ -73,10 +83,8 @@ impl Desktop for Mac {
         }
     }
 
-    fn window(&self, action: Window) -> Result<(), Error> {
-        match action {
-            Window::Resize(change) => window::resize(change),
-        }
+    fn window(&self, action: &Window) -> Result<(), Error> {
+        window::perform(action, self.app.as_ref())
     }
 
     fn bluetooth(&self, action: &Bluetooth) -> Result<(), Error> {

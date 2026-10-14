@@ -56,7 +56,11 @@ pub enum Verdict {
 /// Work the platform does in response.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
-    Run(Command),
+    /// Runs `command`; window actions act on `app`'s window, or without one on the focused window.
+    Run {
+        command: Command,
+        app: Option<AppId>,
+    },
     /// External displays follow the built-in display's brightness.
     SyncBrightness,
 }
@@ -91,7 +95,10 @@ impl Decision {
     fn run(command: &Command) -> Self {
         Self {
             verdict: Verdict::Drop,
-            effect: Some(Effect::Run(command.clone())),
+            effect: Some(Effect::Run {
+                command: command.clone(),
+                app: None,
+            }),
         }
     }
 }
@@ -128,8 +135,11 @@ impl Config {
                 effect: self
                     .app_id
                     .get(&app)
-                    .and_then(|app| app.on_launch.clone())
-                    .map(Effect::Run),
+                    .and_then(|config| config.on_launch.clone())
+                    .map(|command| Effect::Run {
+                        command,
+                        app: Some(app),
+                    }),
             },
         }
     }
@@ -219,7 +229,7 @@ mod tests {
         for (front, combo, expected) in triggers {
             let decision = press(front, combo, false);
             assert_eq!(decision.verdict, Verdict::Drop, "{combo} in {front}");
-            let Some(Effect::Run(command)) = decision.effect else {
+            let Some(Effect::Run { command, .. }) = decision.effect else {
                 panic!("{combo} in {front} runs nothing");
             };
             assert_eq!(command.as_ref(), actions(expected), "{combo} in {front}");
@@ -229,7 +239,7 @@ mod tests {
     #[test]
     fn held_keys_repeat_only_incremental_commands() {
         let resize = press(GHOSTTY, "super+home", true);
-        assert!(matches!(resize.effect, Some(Effect::Run(_))));
+        assert!(matches!(resize.effect, Some(Effect::Run { .. })));
         assert_eq!(
             press(GHOSTTY, "home", true),
             Decision::verdict(Verdict::Drop)
@@ -265,14 +275,20 @@ mod tests {
     #[test]
     fn launches_run_their_application_command() {
         let launch = |app| config().decide(Event::Launch(AppId::from(app)), &NATURAL, &Front(None));
-        let Some(Effect::Run(command)) = launch("com.apple.Music").effect else {
+        let Some(Effect::Run { command, app }) = launch("com.apple.Music").effect else {
             panic!("launching Music runs nothing");
         };
         assert_eq!(
             command.as_ref(),
             actions(r#"{ app.kill = "com.apple.Music" }"#)
         );
-        assert_eq!(launch(FIREFOX), Decision::PASS);
+        assert_eq!(app, Some(AppId::from("com.apple.Music")));
+        let Some(Effect::Run { command, app }) = launch(FIREFOX).effect else {
+            panic!("launching Firefox runs nothing");
+        };
+        assert_eq!(command.as_ref(), actions(r#""window.fullscreen""#));
+        assert_eq!(app, Some(AppId::from(FIREFOX)));
+        assert_eq!(launch("com.apple.TextEdit"), Decision::PASS);
     }
 
     #[test]

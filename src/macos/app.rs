@@ -22,6 +22,11 @@ fn running(app: &AppId) -> Result<Retained<NSRunningApplication>, Error> {
         .ok_or_else(|| Error::NotRunning(app.clone()))
 }
 
+/// A running application's process identifier.
+pub fn pid(app: &AppId) -> Result<i32, Error> {
+    Ok(running(app)?.processIdentifier())
+}
+
 /// The application in front.
 pub fn front() -> Option<AppId> {
     NSWorkspace::sharedWorkspace()
