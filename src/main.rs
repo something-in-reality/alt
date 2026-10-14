@@ -2,7 +2,7 @@ mod cli;
 
 use std::{
     env,
-    io::{self, IsTerminal},
+    io::{self, IsTerminal, Write},
     process::ExitCode,
     sync::Arc,
 };
@@ -47,11 +47,19 @@ fn main() -> anyhow::Result<ExitCode> {
     };
     match cli.command {
         None => {
-            match Config::load(&path) {
-                Ok(_) => println!("config:     {}", path.display()),
-                Err(error) => println!("config:     {}: {error}", path.display()),
+            let config = match Config::load(&path) {
+                Ok(_) => path.display().to_string(),
+                Err(error) => format!("{}: {error}", path.display()),
+            };
+            // A reader that closes early, such as `head`, ends the report.
+            match writeln!(
+                io::stdout().lock(),
+                "config:     {config}\n{}",
+                Status::read()
+            ) {
+                Err(error) if error.kind() == io::ErrorKind::BrokenPipe => {}
+                written => written?,
             }
-            println!("{}", Status::read());
         }
         Some(Commands::Run) => {
             let config = Arc::new(ArcSwap::from_pointee(Config::load(&path)?));
