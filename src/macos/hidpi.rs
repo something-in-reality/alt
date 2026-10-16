@@ -15,9 +15,10 @@ use objc2::rc::autoreleasepool;
 use objc2_core_graphics::{
     CGBeginDisplayConfiguration, CGCancelDisplayConfiguration, CGCompleteDisplayConfiguration,
     CGConfigureDisplayMirrorOfDisplay, CGConfigureDisplayWithDisplayMode, CGConfigureOption,
-    CGDirectDisplayID, CGDisplayChangeSummaryFlags, CGDisplayCopyDisplayMode, CGDisplayMode,
-    CGDisplayModelNumber, CGDisplayRegisterReconfigurationCallback, CGDisplayScreenSize,
-    CGDisplaySerialNumber, CGError, CGGetOnlineDisplayList,
+    CGDirectDisplayID, CGDisplayChangeSummaryFlags, CGDisplayCopyDisplayMode,
+    CGDisplayMirrorsDisplay, CGDisplayMode, CGDisplayModelNumber,
+    CGDisplayRegisterReconfigurationCallback, CGDisplayScreenSize, CGDisplaySerialNumber, CGError,
+    CGGetOnlineDisplayList,
 };
 
 use super::{
@@ -57,6 +58,7 @@ enum Step {
         name: String,
         physical: CGDirectDisplayID,
     },
+    Mirror(String),
 }
 
 impl HiDpi {
@@ -92,7 +94,8 @@ impl HiDpi {
     }
 }
 
-/// Reconciles after each completed display configuration, including those of this module's own.
+/// Reconciles after each completed display configuration, including those of this module's own:
+/// a new virtual display has its modes once its addition is delivered.
 unsafe extern "C-unwind" fn reconfigured(
     _: CGDirectDisplayID,
     flags: CGDisplayChangeSummaryFlags,
@@ -121,18 +124,44 @@ impl State {
             .iter()
             .map(|(name, mirror)| (name.clone(), mirror.physical))
             .collect();
-        for step in plan(&desired, &present, &current) {
+        let unmirrored = mirrors
+            .iter()
+            .filter(|(_, mirror)| {
+                mirror
+                    .display
+                    .as_ref()
+                    .is_some_and(|display| CGDisplayMirrorsDisplay(mirror.physical) != display.id())
+            })
+            .map(|(name, _)| name.clone())
+            .collect();
+        for step in plan(&desired, &present, &current, &unmirrored) {
             match step {
                 Step::Drop(name) => {
                     mirrors.remove(&name);
                     tracing::info!(%name, "dropped the HiDPI display");
                 }
                 Step::Create { name, physical } => {
-                    let display = mirrored(&name, physical, &self.queue)
-                        .inspect(|_| tracing::info!(%name, "rendering at twice the resolution"))
-                        .inspect_err(|error| tracing::warn!(%error, %name, "mirroring"))
+                    let display = virtual_display(&name, physical, &self.queue)
+                        .inspect(|_| tracing::info!(%name, "created the HiDPI display"))
+                        .inspect_err(|error| tracing::warn!(%error, %name, "creating"))
                         .ok();
                     mirrors.insert(name, Mirror { physical, display });
+                }
+                Step::Mirror(name) => {
+                    let Some(Mirror {
+                        physical,
+                        display: Some(display),
+                    }) = mirrors.get(&name)
+                    else {
+                        continue;
+                    };
+                    match mirror(*physical, display) {
+                        Ok(()) => tracing::info!(%name, "rendering at twice the resolution"),
+                        Err(Error::Unavailable(_)) => {
+                            tracing::debug!(%name, "waiting for the HiDPI display's modes");
+                        }
+                        Err(error) => tracing::warn!(%error, %name, "mirroring"),
+                    }
                 }
             }
         }
@@ -140,12 +169,14 @@ impl State {
 }
 
 /// The steps from `current` mirrors to those `desired` of the `present` displays, which map names
-/// to IDs: a mirror ends when its display is unlisted, gone, or has another ID, and a listed
-/// display without a mirror gets one.
+/// to IDs: a mirror ends when its display is unlisted, gone, or has another ID; a listed display
+/// without a mirror gets a virtual display; a kept virtual display that its display does not
+/// mirror, one of `unmirrored`, is mirrored.
 fn plan(
     desired: &BTreeSet<String>,
     present: &BTreeMap<String, CGDirectDisplayID>,
     current: &BTreeMap<String, CGDirectDisplayID>,
+    unmirrored: &BTreeSet<String>,
 ) -> Vec<Step> {
     let wanted = |name: &String| desired.contains(name).then(|| present.get(name)).flatten();
     let drops = current
@@ -159,7 +190,11 @@ fn plan(
             physical: *id,
         })
     });
-    drops.chain(creates).collect()
+    let mirrors = unmirrored
+        .iter()
+        .filter(|name| wanted(name).is_some_and(|id| current.get(*name) == Some(id)))
+        .map(|name| Step::Mirror(name.clone()));
+    drops.chain(creates).chain(mirrors).collect()
 }
 
 /// The connected displays by name, other than the virtual displays. AppKit lists a mirrored
@@ -197,8 +232,8 @@ fn online() -> Result<Vec<CGDirectDisplayID>, Error> {
     Ok(displays[..count as usize].to_vec())
 }
 
-/// A virtual display of twice the pixels of `physical`, which now mirrors it.
-fn mirrored(
+/// A virtual display of twice the pixels of `physical`, named after it.
+fn virtual_display(
     name: &str,
     physical: CGDirectDisplayID,
     queue: &DispatchQueue,
@@ -208,7 +243,7 @@ fn mirrored(
     let pixels = |points: usize| {
         u32::try_from(points).map_err(|_| Error::Unavailable("a display mode of this size"))
     };
-    let display = VirtualDisplay::new(
+    VirtualDisplay::new(
         &Descriptor {
             name: name.to_owned(),
             vendor: VENDOR,
@@ -224,9 +259,7 @@ fn mirrored(
             },
         },
         queue,
-    )?;
-    mirror(physical, &display)?;
-    Ok(display)
+    )
 }
 
 /// Sets the HiDPI mode of `master` and mirrors `display` onto it while this process runs.
@@ -288,7 +321,7 @@ mod tests {
     fn a_listed_display_gets_a_mirror() {
         let present = ids([("Dell", 2), ("LG", 3)]);
         assert_eq!(
-            plan(&names(["Dell"]), &present, &ids([])),
+            plan(&names(["Dell"]), &present, &ids([]), &names([])),
             [create("Dell", 2)]
         );
     }
@@ -296,19 +329,22 @@ mod tests {
     #[test]
     fn a_mirrored_display_is_left_alone() {
         let present = ids([("Dell", 2)]);
-        assert_eq!(plan(&names(["Dell"]), &present, &present), []);
+        assert_eq!(plan(&names(["Dell"]), &present, &present, &names([])), []);
     }
 
     #[test]
     fn a_listed_display_that_is_absent_waits() {
-        assert_eq!(plan(&names(["Dell"]), &ids([("LG", 3)]), &ids([])), []);
+        assert_eq!(
+            plan(&names(["Dell"]), &ids([("LG", 3)]), &ids([]), &names([])),
+            []
+        );
     }
 
     #[test]
     fn an_unlisted_mirror_ends() {
         let present = ids([("Dell", 2)]);
         assert_eq!(
-            plan(&names([]), &present, &present),
+            plan(&names([]), &present, &present, &names(["Dell"])),
             [Step::Drop("Dell".to_owned())]
         );
     }
@@ -316,7 +352,7 @@ mod tests {
     #[test]
     fn a_disconnected_display_ends_its_mirror() {
         assert_eq!(
-            plan(&names(["Dell"]), &ids([]), &ids([("Dell", 2)])),
+            plan(&names(["Dell"]), &ids([]), &ids([("Dell", 2)]), &names([])),
             [Step::Drop("Dell".to_owned())]
         );
     }
@@ -324,8 +360,22 @@ mod tests {
     #[test]
     fn a_reconnected_display_with_a_new_id_is_mirrored_again() {
         assert_eq!(
-            plan(&names(["Dell"]), &ids([("Dell", 5)]), &ids([("Dell", 2)])),
+            plan(
+                &names(["Dell"]),
+                &ids([("Dell", 5)]),
+                &ids([("Dell", 2)]),
+                &names(["Dell"])
+            ),
             [Step::Drop("Dell".to_owned()), create("Dell", 5)]
+        );
+    }
+
+    #[test]
+    fn a_virtual_display_its_display_does_not_mirror_is_mirrored() {
+        let present = ids([("Dell", 2)]);
+        assert_eq!(
+            plan(&names(["Dell"]), &present, &present, &names(["Dell"])),
+            [Step::Mirror("Dell".to_owned())]
         );
     }
 }
