@@ -35,6 +35,12 @@ pub enum Error {
     NoBuiltinDisplay,
     #[error("DisplayServices error {0}")]
     DisplayServices(i32),
+    #[error("the system has no {0} class")]
+    NoClass(String),
+    #[error("{step} the virtual display of {name} failed")]
+    VirtualDisplay { name: String, step: &'static str },
+    #[error("{what}: CoreGraphics error {code}")]
+    CoreGraphics { what: &'static str, code: i32 },
     #[error("showing a notification: {0}")]
     Notification(#[from] notify_rust::error::Error),
     #[error("loading DisplayServices: {0}")]

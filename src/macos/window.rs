@@ -6,31 +6,20 @@ use std::{
     time::Duration,
 };
 
-use dispatch2::DispatchQueue;
-use objc2::MainThreadMarker;
-use objc2_app_kit::NSScreen;
 use objc2_application_services::{AXError, AXUIElement, AXValue, AXValueType};
 use objc2_core_foundation::{
     CFArray, CFBoolean, CFRetained, CFString, CFType, CGPoint, CGRect, CGSize,
 };
-use objc2_core_graphics::CGDisplayIsBuiltin;
-use objc2_foundation::{NSNumber, NSString};
 
-use super::{Error, app};
+use super::{
+    Error, app,
+    screen::{Display, displays},
+};
 use crate::action::{AppId, Screen, Side, Window};
 
 /// Polls for an application's window, which opens after its launch notification: 15 seconds.
 const POLL: Duration = Duration::from_millis(250);
 const ATTEMPTS: u32 = 60;
-
-/// A display, its frames in the Accessibility API's coordinates: points from the primary display's
-/// top-left corner.
-struct Display {
-    name: String,
-    builtin: bool,
-    frame: CGRect,
-    visible: CGRect,
-}
 
 /// Performs `action` on `app`'s main window once it opens, or without `app` on the focused window.
 pub fn perform(action: &Window, app: Option<&AppId>) -> Result<(), Error> {
@@ -244,42 +233,6 @@ fn press_menu(application: &AXUIElement, path: &[&str]) -> Result<(), Error> {
     check("AXPress", unsafe {
         item.perform_action(&CFString::from_str("AXPress"))
     })
-}
-
-/// The displays from left to right, read on the main thread, which owns AppKit's screens.
-fn displays() -> Result<Vec<Display>, Error> {
-    let mut displays = Vec::new();
-    DispatchQueue::main().exec_sync(|| {
-        let mtm = MainThreadMarker::new().expect("the main queue runs on the main thread");
-        let screens = NSScreen::screens(mtm);
-        let height = screens
-            .firstObject()
-            .map_or(0.0, |primary| primary.frame().size.height);
-        let flip = |rect: CGRect| {
-            CGRect::new(
-                CGPoint::new(rect.origin.x, height - rect.origin.y - rect.size.height),
-                rect.size,
-            )
-        };
-        displays = screens
-            .iter()
-            .map(|screen| Display {
-                name: screen.localizedName().to_string(),
-                builtin: screen
-                    .deviceDescription()
-                    .objectForKey(&NSString::from_str("NSScreenNumber"))
-                    .and_then(|number| number.downcast::<NSNumber>().ok())
-                    .is_some_and(|number| CGDisplayIsBuiltin(number.unsignedIntValue())),
-                frame: flip(screen.frame()),
-                visible: flip(screen.visibleFrame()),
-            })
-            .collect();
-    });
-    if displays.is_empty() {
-        return Err(Error::Unavailable("a display"));
-    }
-    displays.sort_by(|a, b| a.frame.origin.x.total_cmp(&b.frame.origin.x));
-    Ok(displays)
 }
 
 /// The display holding the centre of `frame`, or the leftmost.

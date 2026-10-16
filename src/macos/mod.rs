@@ -5,13 +5,16 @@ mod bluetooth;
 mod desktop;
 mod display;
 mod error;
+mod hidpi;
 mod keymap;
+mod screen;
 mod session;
 pub mod setup;
 pub mod status;
 mod synth;
 mod system_key;
 mod tap;
+mod virtual_display;
 mod window;
 
 use std::{convert::Infallible, io, os::unix::process::CommandExt, process};
@@ -21,6 +24,7 @@ use objc2_application_services::AXIsProcessTrusted;
 pub use self::{
     desktop::{Dispatcher, Mac},
     error::Error,
+    hidpi::HiDpi,
     session::{Front, Session},
 };
 

@@ -4,7 +4,7 @@ pub mod edit;
 pub mod watch;
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fs, io,
     path::{Path, PathBuf},
     str::FromStr,
@@ -49,6 +49,8 @@ pub struct Pointer {
 pub struct Display {
     /// External displays follow the built-in display's brightness.
     pub sync_brightness: bool,
+    /// External displays rendered at twice their resolution, by the name macOS shows.
+    pub hidpi: BTreeSet<String>,
 }
 
 #[serde_as]
@@ -114,6 +116,13 @@ mod tests {
         let config: Config = EXAMPLE.parse().unwrap();
         assert_eq!(config.input.pointer.natural_scroll, Some(false));
         assert!(config.display.sync_brightness);
+        assert_eq!(config.display.hidpi, ["DELL U2722DE".to_owned()].into());
+    }
+
+    #[test]
+    fn displays_default_to_native_resolution() {
+        let config: Config = "[display]\nsync_brightness = true".parse().unwrap();
+        assert!(config.display.hidpi.is_empty());
     }
 
     #[test]
