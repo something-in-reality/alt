@@ -43,7 +43,7 @@ fn main() -> anyhow::Result<ExitCode> {
     let cli = Cli::parse();
     let path = match cli.config {
         Some(path) => path,
-        None => paths::config_file()?,
+        None => paths::config_file().context("no home directory for the config file")?,
     };
     match cli.command {
         None => {

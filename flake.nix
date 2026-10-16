@@ -21,14 +21,16 @@
     {
       packages = forAllSystems (system: {
         default = nixpkgs.legacyPackages.${system}.callPackage ./package.nix { };
-        glove80 = import ./glove80/package.nix { inherit zmk system; };
+        glove80 = nixpkgs.legacyPackages.${system}.callPackage ./glove80/package.nix {
+          inherit zmk system;
+        };
       });
 
       checks = self.packages;
 
       formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt);
 
-      homeModules.default = import ./module.nix self;
+      darwinModules.default = import ./module.nix self;
 
       devShells = forAllSystems (system: {
         default =

@@ -64,7 +64,7 @@ impl Step {
         }
     }
 
-    fn run(self, firmware: &Path) -> anyhow::Result<()> {
+    fn run(self) -> anyhow::Result<()> {
         match self {
             Self::Permission => {
                 Command::new("/usr/bin/open")
@@ -76,7 +76,7 @@ impl Step {
                 }
                 Ok(())
             }
-            Self::Glove80(half) => flash(half, firmware),
+            Self::Glove80(half) => flash(half),
         }
     }
 }
@@ -103,7 +103,6 @@ impl fmt::Display for Row {
 
 /// Shows each step's status, preselects those known to be undone, and runs the selection in order.
 pub fn setup() -> anyhow::Result<()> {
-    let firmware = paths::data_dir()?.join("glove80.uf2");
     let rows: Vec<Row> = Step::ALL
         .into_iter()
         .map(|step| Row {
@@ -119,19 +118,17 @@ pub fn setup() -> anyhow::Result<()> {
         .prompt()?;
     for Row { step, .. } in selected {
         println!("{step}");
-        step.run(&firmware)?;
+        step.run()?;
     }
     Ok(())
 }
 
-/// Copies `firmware` to `half`'s bootloader volume and waits for the half to restart.
-fn flash(half: Half, firmware: &Path) -> anyhow::Result<()> {
-    let bytes = fs::read(firmware).with_context(|| {
-        format!(
-            "reading {}; enable services.alt.glove80",
-            firmware.display()
-        )
-    })?;
+/// Copies the firmware to `half`'s bootloader volume and waits for the half to restart.
+fn flash(half: Half) -> anyhow::Result<()> {
+    let firmware = paths::firmware().context(
+        "no alt/glove80.uf2 in $XDG_DATA_HOME or $XDG_DATA_DIRS; enable services.alt.glove80",
+    )?;
+    let bytes = fs::read(&firmware).with_context(|| format!("reading {}", firmware.display()))?;
     let volume = half.volume();
     println!(
         "Hold Magic and press {} to start the {half} half's bootloader.",

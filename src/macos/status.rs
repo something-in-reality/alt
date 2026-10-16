@@ -1,11 +1,7 @@
 //! The installed app, its process, its signature and its Accessibility permission, each read
 //! from the system.
 
-use std::{
-    fmt,
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::{fmt, path::Path, process::Command};
 
 use libproc::{
     libproc::proc_pid::pidpath,
@@ -13,19 +9,20 @@ use libproc::{
 };
 use objc2_core_graphics::{CGError, CGGetEventTapList};
 
-/// The app at ~/Applications/Alt.app, where the home-manager module installs it.
+/// Where the nix-darwin module installs the app.
+const BUNDLE: &str = "/Applications/Alt.app";
+
+/// The app at `BUNDLE`.
 pub struct Status {
     pid: Option<u32>,
-    bundle: PathBuf,
     signer: Option<String>,
 }
 
 impl Status {
     pub fn read() -> Self {
-        let bundle = bundle();
         let signer = Command::new("/usr/bin/codesign")
             .args(["-d", "-vv"])
-            .arg(&bundle)
+            .arg(BUNDLE)
             .output()
             .ok()
             .and_then(|output| {
@@ -36,21 +33,14 @@ impl Status {
             });
         Self {
             pid: daemon(),
-            bundle,
             signer,
         }
     }
 }
 
-fn bundle() -> PathBuf {
-    etcetera::home_dir()
-        .unwrap_or_default()
-        .join("Applications/Alt.app")
-}
-
 /// The running daemon: the process of the installed app's executable.
 pub fn daemon() -> Option<u32> {
-    let executable = bundle().join("Contents/MacOS/alt");
+    let executable = Path::new(BUNDLE).join("Contents/MacOS/alt");
     pids_by_type(ProcFilter::All)
         .unwrap_or_default()
         .into_iter()
@@ -85,7 +75,7 @@ impl fmt::Display for Status {
             Some(pid) => writeln!(f, "running:    pid {pid}")?,
             None => writeln!(f, "running:    no")?,
         }
-        writeln!(f, "app:        {}", self.bundle.display())?;
+        writeln!(f, "app:        {BUNDLE}")?;
         match &self.signer {
             Some(signer) => writeln!(f, "signed by:  {signer}")?,
             None => writeln!(f, "signed by:  no certificate")?,

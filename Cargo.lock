@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "alt"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -25,7 +25,6 @@ dependencies = [
  "ddc-macos",
  "dispatch2",
  "edit",
- "etcetera",
  "inquire",
  "jiff",
  "keycode",
@@ -49,6 +48,7 @@ dependencies = [
  "tracing",
  "tracing-oslog",
  "tracing-subscriber",
+ "xdg",
 ]
 
 [[package]]
@@ -932,17 +932,6 @@ checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "etcetera"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26c7b13d0780cb82722fd59f6f57f925e143427e4a75313a6c77243bf5326ae6"
-dependencies = [
- "cfg-if",
- "home",
- "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3264,6 +3253,12 @@ dependencies = [
  "spki",
  "tls_codec",
 ]
+
+[[package]]
+name = "xdg"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fb433233f2df9344722454bc7e96465c9d03bff9d77c248f9e7523fe79585b5"
 
 [[package]]
 name = "zbus"

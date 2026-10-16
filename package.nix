@@ -24,6 +24,10 @@ rustPlatform.buildRustPackage {
     ];
   };
   cargoLock.lockFile = ./Cargo.lock;
+  outputs = [
+    "out"
+    "app"
+  ];
   cargoBuildFlags = [ "--workspace" ];
   # build.rs writes shell completions here.
   env.COMPLETIONS = "completions";
@@ -31,9 +35,9 @@ rustPlatform.buildRustPackage {
 
   nativeBuildInputs = [ installShellFiles ];
 
-  # The app bundle gives the binary a bundle identifier for its permissions.
+  # The app bundle, in its own output, gives the binary a bundle identifier for its permissions.
   postInstall = ''
-    app=$out/Applications/Alt.app/Contents
+    app=$app/Applications/Alt.app/Contents
     install -D $out/bin/alt $app/MacOS/alt
     substitute Info.plist $app/Info.plist --subst-var version --subst-var-by identifier ${identifier}
     installShellCompletion completions/{alt.bash,_alt}
