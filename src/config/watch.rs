@@ -16,13 +16,12 @@ use notify_debouncer_full::{
 
 use super::Config;
 
-/// Loads `path` into `config` on each change to it, then calls `reloaded`; an invalid file keeps
-/// the last valid configuration. The watch covers the directories of `path` and of the file it
-/// links to, which see the link replaced and the linked file edited.
+/// Loads `path` into `config` on each change to it; an invalid file keeps the last valid
+/// configuration. The watch covers the directories of `path` and of the file it links to, which
+/// see the link replaced and the linked file edited.
 pub fn watch(
     path: PathBuf,
     config: Arc<ArcSwap<Config>>,
-    reloaded: impl Fn() + Send + 'static,
 ) -> notify::Result<Debouncer<RecommendedWatcher, RecommendedCache>> {
     let path = std::path::absolute(path)?;
     let paths: BTreeSet<PathBuf> = [Some(path.clone()), fs::canonicalize(&path).ok()]
@@ -52,7 +51,6 @@ pub fn watch(
                         Ok(loaded) => {
                             config.store(Arc::new(loaded));
                             tracing::info!(path = %path.display(), "reloaded");
-                            reloaded();
                         }
                         Err(error) => tracing::error!(%error, "keeping the last configuration"),
                     }

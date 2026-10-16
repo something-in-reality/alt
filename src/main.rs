@@ -63,9 +63,7 @@ fn main() -> anyhow::Result<ExitCode> {
         }
         Some(Commands::Run) => {
             let config = Arc::new(ArcSwap::from_pointee(Config::load(&path)?));
-            let hidpi = macos::HiDpi::new(config.clone())?;
-            let _watcher = watch(path, config.clone(), move || hidpi.reconcile())
-                .context("watching the configuration")?;
+            let _watcher = watch(path, config.clone()).context("watching the configuration")?;
             platform::run(Session, Dispatcher::new()?, config)?;
         }
         Some(Commands::Edit) => edit(&path)?,

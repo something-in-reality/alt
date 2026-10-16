@@ -7,8 +7,6 @@ natural_scroll = false
 
 [display]
 sync_brightness = true
-# External displays rendered at twice their resolution, by the name macOS shows.
-hidpi = ["DELL U2722DE"]
 
 [bindsym]
 f1 = { keyboard.press = "dictation" }

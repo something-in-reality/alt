@@ -17,13 +17,11 @@ use std::{
 };
 
 use dispatch2::DispatchQueue;
-use objc2::MainThreadMarker;
 use objc2_app_kit::{
-    NSApplication, NSWorkspaceDidActivateApplicationNotification,
-    NSWorkspaceWillLaunchApplicationNotification,
+    NSWorkspaceDidActivateApplicationNotification, NSWorkspaceWillLaunchApplicationNotification,
 };
 use objc2_application_services::{AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt};
-use objc2_core_foundation::{CFBoolean, CFDictionary};
+use objc2_core_foundation::{CFBoolean, CFDictionary, CFRunLoop};
 use objc2_core_graphics::{CGEvent, CGEventField, CGEventType};
 use objc2_foundation::{NSString, NSUserDefaults};
 
@@ -102,9 +100,7 @@ impl Input for Session {
         .ok_or(Error::Tap)?;
         watchdog();
         tracing::info!("running");
-        // AppKit's event loop, which also delivers display changes to CoreGraphics and AppKit.
-        let mtm = MainThreadMarker::new().expect("the session runs on the main thread");
-        NSApplication::sharedApplication(mtm).run();
+        CFRunLoop::run();
         Err(Error::RunLoopEnded)
     }
 }
