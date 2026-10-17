@@ -31,6 +31,9 @@ pub const TRUST_CHECK: &str = "ALT_TRUST_CHECK";
 /// The app's bundle identifier, which also names its log subsystem.
 pub const IDENTIFIER: &str = env!("BUNDLE_IDENTIFIER");
 
+/// Where the nix-darwin module installs the signed app.
+pub const BUNDLE: &str = env!("BUNDLE_PATH");
+
 /// Streams this app's log, debug messages included, replacing this process.
 pub fn log() -> io::Result<Infallible> {
     Err(process::Command::new("/usr/bin/log")

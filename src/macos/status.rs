@@ -9,8 +9,7 @@ use libproc::{
 };
 use objc2_core_graphics::{CGError, CGGetEventTapList};
 
-/// Where the nix-darwin module installs the app.
-const BUNDLE: &str = "/Applications/Alt.app";
+use super::BUNDLE;
 
 /// The app at `BUNDLE`.
 pub struct Status {

@@ -1,5 +1,5 @@
-//! Passes the bundle identifier from Cargo.toml's `package.metadata.bundle` to the crate, and
-//! writes shell completions into $COMPLETIONS when it is set.
+//! Passes the bundle identifier and path from Cargo.toml's `package.metadata.bundle` to the crate,
+//! and writes shell completions into $COMPLETIONS when it is set.
 
 use std::{env, fs, io, path::Path};
 
@@ -17,10 +17,13 @@ fn main() -> io::Result<()> {
     let manifest: toml::Table = fs::read_to_string(Path::new(&manifest_dir).join("Cargo.toml"))?
         .parse()
         .map_err(io::Error::other)?;
-    let identifier = manifest["package"]["metadata"]["bundle"]["identifier"]
-        .as_str()
-        .ok_or_else(|| io::Error::other("package.metadata.bundle.identifier is a string"))?;
-    println!("cargo::rustc-env=BUNDLE_IDENTIFIER={identifier}");
+    let bundle = &manifest["package"]["metadata"]["bundle"];
+    for (key, variable) in [("identifier", "BUNDLE_IDENTIFIER"), ("path", "BUNDLE_PATH")] {
+        let value = bundle[key].as_str().ok_or_else(|| {
+            io::Error::other(format!("package.metadata.bundle.{key} is a string"))
+        })?;
+        println!("cargo::rustc-env={variable}={value}");
+    }
 
     let Some(dir) = env::var_os("COMPLETIONS") else {
         return Ok(());

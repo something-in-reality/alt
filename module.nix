@@ -1,6 +1,6 @@
 # nix-darwin module: the alt app as a launchd agent at login, reading
-# $XDG_CONFIG_HOME/alt/config.toml. Activation copies the app to /Applications and signs it
-# with rcodesign under an identity derived from `seed`: every build meets one designated
+# $XDG_CONFIG_HOME/alt/config.toml. Activation copies the app to the package's `bundle` path and
+# signs it with rcodesign under an identity derived from `seed`: every build meets one designated
 # requirement, so its Accessibility permission survives rebuilds. With `glove80.enable`, the
 # keyboard's firmware is at share/alt/glove80.uf2 in the system profile for `alt setup` to
 # flash. The app logs to the unified log. `self` is the alt flake.
@@ -13,7 +13,7 @@ self:
 }:
 let
   service = config.services.alt;
-  bundle = "/Applications/Alt.app";
+  inherit (service.package) bundle;
   agent = config.launchd.user.agents.alt.serviceConfig.Label;
   user = lib.escapeShellArg config.system.primaryUser;
 in
@@ -25,7 +25,7 @@ in
       type = lib.types.package;
       default = pkgs.callPackage ./package.nix { };
       defaultText = lib.literalMD "this flake's package";
-      description = "The alt package.";
+      description = "The alt package, whose `app` output holds the app bundle.";
     };
 
     glove80 = {
@@ -95,7 +95,7 @@ in
       fi
       rm "$alt_certificate"
 
-      alt_app=${service.package.app}/Applications/Alt.app
+      alt_app=${service.package.app}/Applications/${baseNameOf bundle}
       alt_uuid() {
         ${lib.getExe' pkgs.cctools "otool"} -l "$1/Contents/MacOS/alt" 2>/dev/null \
           | ${lib.getExe pkgs.gawk} '$1 == "uuid" { print $2; exit }'

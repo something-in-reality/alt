@@ -1,6 +1,6 @@
 [package]
 name = "alt"
-version = "0.15.0"
+version = "0.15.1"
 edition = "2024"
 description = "Keyboard, pointer, window and display behaviour outside the terminal"
 publish = false
@@ -8,6 +8,8 @@ publish = false
 # The macOS app bundle; the identifier names its permissions and log subsystem.
 [package.metadata.bundle]
 identifier = "something-in-reality.alt"
+# Where the nix-darwin module installs the signed app.
+path = "/Applications/Alt.app"
 
 [workspace]
 members = ["signing-identity"]

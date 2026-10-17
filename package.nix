@@ -5,7 +5,7 @@
 }:
 let
   manifest = (lib.importTOML ./Cargo.toml).package;
-  inherit (manifest.metadata.bundle) identifier;
+  inherit (manifest.metadata.bundle) identifier path;
 in
 rustPlatform.buildRustPackage {
   pname = manifest.name;
@@ -37,14 +37,18 @@ rustPlatform.buildRustPackage {
 
   # The app bundle, in its own output, gives the binary a bundle identifier for its permissions.
   postInstall = ''
-    app=$app/Applications/Alt.app/Contents
+    app=$app/Applications/${baseNameOf path}/Contents
     install -D $out/bin/alt $app/MacOS/alt
     substitute Info.plist $app/Info.plist --subst-var version --subst-var-by identifier ${identifier}
     installShellCompletion completions/{alt.bash,_alt}
   '';
 
-  # The bundle identifier, which names the app's permissions and log subsystem.
-  passthru = { inherit identifier; };
+  # The bundle identifier, which names the app's permissions and log subsystem, and the path the
+  # nix-darwin module installs the app at, `bundle`.
+  passthru = {
+    inherit identifier;
+    bundle = path;
+  };
 
   meta = {
     inherit (manifest) description;
