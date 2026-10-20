@@ -19,6 +19,7 @@ anyhow = "1"
 arc-swap = "1.9"
 bitflags = "2.9"
 clap = { version = "4.6", features = ["derive"] }
+derive_more = { version = "2", features = ["as_ref", "display", "from"] }
 edit = { version = "0.1", features = ["quoted-env"] }
 inquire = "0.9"
 jiff = "0.2"

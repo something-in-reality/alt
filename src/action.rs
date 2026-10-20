@@ -5,6 +5,7 @@
 
 use std::{fmt, io, iter, process, sync::Arc, thread};
 
+use derive_more::{AsRef, Display, From};
 use serde::{
     Deserialize, Deserializer,
     de::{self, IntoDeserializer},
@@ -140,14 +141,15 @@ pub enum Display {
 }
 
 /// An application: its bundle identifier on macOS, its `app_id` under Wayland.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, From, AsRef, Display)]
 #[serde(transparent)]
-pub struct AppId(Arc<str>);
+#[from(forward)]
+pub struct AppId(#[as_ref(str)] Arc<str>);
 
 /// A paired Bluetooth device, by name or address.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, AsRef, Display)]
 #[serde(transparent)]
-pub struct Device(String);
+pub struct Device(#[as_ref(str)] String);
 
 impl Action {
     /// Performs the action: `exec` here, every other namespace on `desktop`, to which `notify`
@@ -183,56 +185,14 @@ impl Action {
     }
 }
 
-impl From<String> for AppId {
-    fn from(id: String) -> Self {
-        Self(id.into())
-    }
-}
-
-impl From<&str> for AppId {
-    fn from(id: &str) -> Self {
-        Self(id.into())
-    }
-}
-
-impl AsRef<str> for AppId {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for AppId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl AsRef<str> for Device {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for Device {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
 /// One action or a sequence, run in order; cloning shares the actions.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Command(Arc<[Action]>);
+#[derive(Clone, Debug, PartialEq, Eq, AsRef)]
+pub struct Command(#[as_ref([Action])] Arc<[Action]>);
 
 impl Command {
     /// Whether a held key repeats the command: every action repeats.
     pub fn repeats(&self) -> bool {
         self.0.iter().all(Action::repeats)
-    }
-}
-
-impl AsRef<[Action]> for Command {
-    fn as_ref(&self) -> &[Action] {
-        &self.0
     }
 }
 
