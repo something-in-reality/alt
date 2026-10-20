@@ -70,10 +70,10 @@ pub fn perform(action: &Window, app: Option<&AppId>) -> Result<(), Error> {
                 })
                 .collect();
             let names: Vec<_> = targets.iter().map(|(_, name)| name.as_str()).collect();
-            let (item, _) = select(screen, &names)
+            let (item, name) = select(screen, &names)
                 .map(|index| &targets[index])
                 .ok_or_else(|| Error::NoDisplay(screen.clone()))?;
-            press(item)
+            press(item, &format!("Window > {MOVE_TO}{name}"))
         }
     }
 }
@@ -201,14 +201,22 @@ fn menu(application: &AXUIElement, path: &[&str]) -> Result<Vec<CFRetained<AXUIE
 /// Presses the item `name` of the menu at `path` in `application`'s menu bar.
 fn press_menu(application: &AXUIElement, path: &[&str], name: &str) -> Result<(), Error> {
     let items = menu(application, path)?;
+    let item_path = format!("{} > {name}", path.join(" > "));
     let item = items
         .iter()
         .find(|item| title(item).as_deref() == Some(name))
-        .ok_or_else(|| Error::NoMenuItem(format!("{} > {name}", path.join(" > "))))?;
-    press(item)
+        .ok_or_else(|| Error::NoMenuItem(item_path.clone()))?;
+    press(item, &item_path)
 }
 
-fn press(item: &AXUIElement) -> Result<(), Error> {
+/// Presses the menu item at `path`, which must be enabled.
+fn press(item: &AXUIElement, path: &str) -> Result<(), Error> {
+    let enabled = attribute(item, "AXEnabled")?
+        .downcast::<CFBoolean>()
+        .map_err(|_| Error::Unavailable("a boolean"))?;
+    if !enabled.as_bool() {
+        return Err(Error::DisabledMenuItem(path.to_owned()));
+    }
     check("AXPress", unsafe {
         item.perform_action(&CFString::from_str("AXPress"))
     })
