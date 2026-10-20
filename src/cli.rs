@@ -26,6 +26,9 @@ pub enum Commands {
     /// Opens a copy of the configuration in $VISUAL or $EDITOR, and writes it into place once it
     /// is valid.
     Edit,
+    /// Prints the configuration's JSON Schema. An editor with a TOML language server, such as taplo,
+    /// validates and completes config.toml against it from a first line `#:schema <path or url>`.
+    Schema,
     /// Streams the running app's log: each decided event, action and error.
     Log,
     /// Shows the machine's one-time steps, the Accessibility permission and the Glove80's

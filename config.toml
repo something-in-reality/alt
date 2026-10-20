@@ -1,4 +1,6 @@
-# Example configuration; ~/.config/alt/config.toml.
+#:schema /run/current-system/sw/share/alt/config.schema.json
+# Example configuration; ~/.config/alt/config.toml. The first line makes taplo, and so helix,
+# validate and complete this file against `alt schema`.
 # Keys are W3C KeyboardEvent.code names in snake_case, letters and digits by character; modifiers
 # are ctrl, alt, shift and super. An action is "namespace.verb", or { namespace.verb = argument }.
 

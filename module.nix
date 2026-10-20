@@ -1,9 +1,10 @@
 # nix-darwin module: the alt app as a launchd agent at login, reading
 # $XDG_CONFIG_HOME/alt/config.toml. Activation copies the app to the package's `bundle` path and
 # signs it with rcodesign under an identity derived from `seed`: every build meets one designated
-# requirement, so its Accessibility permission survives rebuilds. With `glove80.enable`, the
-# keyboard's firmware is at share/alt/glove80.uf2 in the system profile for `alt setup` to
-# flash. The app logs to the unified log. `self` is the alt flake.
+# requirement, so its Accessibility permission survives rebuilds. The configuration's JSON Schema
+# is at share/alt/config.schema.json in the system profile. With `glove80.enable`, the keyboard's
+# firmware is at share/alt/glove80.uf2 there for `alt setup` to flash. The app logs to the
+# unified log. `self` is the alt flake.
 self:
 {
   config,
@@ -77,7 +78,7 @@ in
       service.package
     ]
     ++ lib.optional service.glove80.enable service.glove80.package;
-    # Links the firmware into /run/current-system/sw/share, on XDG_DATA_DIRS.
+    # Links the schema and the firmware into /run/current-system/sw/share, on XDG_DATA_DIRS.
     environment.pathsToLink = [ "/share/alt" ];
 
     # Runs as root, last. Trusts the app's signing certificate for code signing, then copies and

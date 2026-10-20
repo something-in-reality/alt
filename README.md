@@ -12,6 +12,7 @@ alt          checks the configuration; reports the process, signature and permis
 alt run      the daemon
 alt edit     edits the configuration; writes it once valid
 alt log      streams the daemon's log
+alt schema   prints the configuration's JSON Schema
 alt setup    grants Accessibility; flashes the Glove80
 ```
 
@@ -55,7 +56,10 @@ the Window menu's "Move to" items, which list the other displays. `window.resize
 `window.fullscreen` set the window's Accessibility attributes. Menu items are found by their
 English titles.
 
-`config.toml` is the full example.
+`config.toml` is the full example. Its first line, `#:schema <path or url>`, makes taplo, and so
+helix, validate and complete the file against the schema; the package installs it at
+`share/alt/config.schema.json`, which the Nix module links to
+`/run/current-system/sw/share/alt/config.schema.json`.
 
 ## Nix
 

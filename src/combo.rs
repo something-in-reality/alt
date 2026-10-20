@@ -2,10 +2,11 @@
 //! `KeyboardEvent.code`s in snake_case, letters and digits by their character: `b`, `1`,
 //! `page_up`, `f3`, `backquote`.
 
-use std::{fmt, str::FromStr};
+use std::{borrow::Cow, fmt, str::FromStr};
 
 use bitflags::bitflags;
 use keycode::KeyMappingCode;
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde_with::DeserializeFromStr;
 
 bitflags! {
@@ -32,6 +33,21 @@ pub enum Key {
 pub struct Combo {
     pub modifiers: Modifiers,
     pub key: Key,
+}
+
+impl JsonSchema for Combo {
+    fn schema_name() -> Cow<'static, str> {
+        "Combo".into()
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "type": "string",
+            "description": "Modifiers (ctrl, alt, shift, super) and a key, joined by `+`. Keys are W3C KeyboardEvent.code names in snake case, letters and digits by character: b, 1, page_up, f3, backquote.",
+            "pattern": r"^((ctrl|alt|shift|super)\+)*[a-z0-9_]+$",
+            "examples": ["f6", "super+home", "ctrl+shift+tab"]
+        })
+    }
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -126,21 +142,33 @@ impl fmt::Display for Combo {
 mod tests {
     use super::*;
 
+    const CANONICAL: [&str; 9] = [
+        "home",
+        "ctrl+shift+tab",
+        "super+backquote",
+        "alt+b",
+        "1",
+        "page_up",
+        "audio_volume_mute",
+        "dictation",
+        "f10",
+    ];
+
     #[test]
     fn round_trips() {
-        for s in [
-            "home",
-            "ctrl+shift+tab",
-            "super+backquote",
-            "alt+b",
-            "1",
-            "page_up",
-            "audio_volume_mute",
-            "dictation",
-            "f10",
-        ] {
+        for s in CANONICAL {
             assert_eq!(s.parse::<Combo>().unwrap().to_string(), s);
         }
+    }
+
+    #[test]
+    fn canonical_combos_match_the_schema() {
+        let schema = schemars::schema_for!(Combo).to_value();
+        let validator = jsonschema::validator_for(&schema).unwrap();
+        for s in CANONICAL {
+            assert!(validator.is_valid(&s.into()), "{s}");
+        }
+        assert!(!validator.is_valid(&"ctrl+".into()));
     }
 
     #[test]

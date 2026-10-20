@@ -41,12 +41,15 @@ fn main() -> anyhow::Result<ExitCode> {
         }))
         .init();
     let cli = Cli::parse();
-    let path = match cli.config {
-        Some(path) => path,
-        None => paths::config_file().context("no home directory for the config file")?,
+    let path = || {
+        cli.config
+            .clone()
+            .or_else(paths::config_file)
+            .context("no home directory for the config file")
     };
     match cli.command {
         None => {
+            let path = path()?;
             let config = match Config::load(&path) {
                 Ok(_) => path.display().to_string(),
                 Err(error) => format!("{}: {error}", path.display()),
@@ -62,11 +65,17 @@ fn main() -> anyhow::Result<ExitCode> {
             }
         }
         Some(Commands::Run) => {
+            let path = path()?;
             let config = Arc::new(ArcSwap::from_pointee(Config::load(&path)?));
             let _watcher = watch(path, config.clone()).context("watching the configuration")?;
             platform::run(Session, Dispatcher::new()?, config)?;
         }
-        Some(Commands::Edit) => edit(&path)?,
+        Some(Commands::Edit) => edit(&path()?)?,
+        Some(Commands::Schema) => {
+            let mut stdout = io::stdout().lock();
+            serde_json::to_writer_pretty(&mut stdout, &Config::schema())?;
+            writeln!(stdout)?;
+        }
         Some(Commands::Log) => match macos::log()? {},
         Some(Commands::Setup) => macos::setup::setup()?,
     }

@@ -3,9 +3,10 @@
 //! An action is written `"namespace.verb"` when the verb takes nothing, and
 //! `{ namespace.verb = argument }` when it does.
 
-use std::{fmt, io, iter, process, sync::Arc, thread};
+use std::{borrow::Cow, fmt, io, iter, process, sync::Arc, thread};
 
 use derive_more::{AsRef, Display, From};
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{
     Deserialize, Deserializer,
     de::{self, IntoDeserializer},
@@ -15,8 +16,9 @@ use serde_with::DeserializeFromStr;
 
 use crate::{combo::Combo, platform::Desktop};
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
+#[schemars(rename = "ActionTable")]
 pub enum Action {
     /// Runs a command with `sh -c`.
     Exec(String),
@@ -31,14 +33,14 @@ pub enum Action {
     Display(Display),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Keyboard {
     Press(Combo),
     Type(String),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum App {
     /// Brings an application to the front, launching it when it is not running.
@@ -49,7 +51,7 @@ pub enum App {
 
 /// Acts on the focused window, or in an application's `on_launch` command, on its window. Tiling,
 /// filling, centring and display moves press items of the application's Window menu.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Window {
     /// Changes the window's size; in split view this moves the divider.
@@ -71,15 +73,15 @@ pub enum Window {
 }
 
 /// A half of a display.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Side {
     Left,
     Right,
 }
 
-/// A half or quarter of a display; the display names the Window > Move & Resize item.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, strum::Display)]
+/// A half or quarter of a display, as titled in Window > Move & Resize.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, JsonSchema, strum::Display)]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "title_case")]
 pub enum Tile {
@@ -105,15 +107,31 @@ pub enum Screen {
     Named(String),
 }
 
+impl JsonSchema for Screen {
+    fn schema_name() -> Cow<'static, str> {
+        "Screen".into()
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "description": "A display of the Window menu's \"Move to\" items: `builtin`, `next` (the first), `previous` (the last), or a display's name.",
+            "anyOf": [
+                { "enum": ["builtin", "next", "previous"] },
+                { "type": "string" }
+            ]
+        })
+    }
+}
+
 /// A signed change in width and height, in points; an omitted side stays.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct Size {
     pub width: i32,
     pub height: i32,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Bluetooth {
     Connect(Device),
@@ -121,7 +139,7 @@ pub enum Bluetooth {
     Toggle(Device),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Media {
     Mute,
@@ -132,7 +150,7 @@ pub enum Media {
     Previous,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Display {
     /// Steps the built-in display's brightness; external displays follow when synced.
@@ -141,13 +159,26 @@ pub enum Display {
 }
 
 /// An application: its bundle identifier on macOS, its `app_id` under Wayland.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, From, AsRef, Display)]
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Deserialize,
+    JsonSchema,
+    From,
+    AsRef,
+    Display,
+)]
 #[serde(transparent)]
 #[from(forward)]
 pub struct AppId(#[as_ref(str)] Arc<str>);
 
 /// A paired Bluetooth device, by name or address.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, AsRef, Display)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema, AsRef, Display)]
 #[serde(transparent)]
 pub struct Device(#[as_ref(str)] String);
 
@@ -205,9 +236,40 @@ impl<'a> IntoIterator for &'a Command {
     }
 }
 
+/// The actions that read as a `"namespace.verb"` string: their verbs take no argument.
+const VERBS: [&str; 11] = [
+    "window.fullscreen",
+    "window.fill",
+    "window.center",
+    "media.mute",
+    "media.volume_up",
+    "media.volume_down",
+    "media.play_pause",
+    "media.next",
+    "media.previous",
+    "display.brightness_up",
+    "display.brightness_down",
+];
+
 /// One action, written `"namespace.verb"` or as a table; the string reads as
 /// `{ namespace = "verb" }`.
 struct Step(Action);
+
+impl JsonSchema for Step {
+    fn schema_name() -> Cow<'static, str> {
+        "Action".into()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "description": "An action: \"namespace.verb\" when the verb takes no argument, or { namespace.verb = argument }.",
+            "anyOf": [
+                { "type": "string", "enum": VERBS },
+                generator.subschema_for::<Action>()
+            ]
+        })
+    }
+}
 
 impl<'de> Deserialize<'de> for Step {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -234,6 +296,23 @@ impl<'de> Deserialize<'de> for Step {
         }
 
         deserializer.deserialize_any(Visitor)
+    }
+}
+
+impl JsonSchema for Command {
+    fn schema_name() -> Cow<'static, str> {
+        "Command".into()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        let action = generator.subschema_for::<Step>();
+        json_schema!({
+            "description": "One action, or a list of actions run in order.",
+            "anyOf": [
+                action,
+                { "type": "array", "items": action }
+            ]
+        })
     }
 }
 
@@ -302,6 +381,13 @@ mod tests {
                 Action::Keyboard(Keyboard::Type("✓".to_owned()))
             ]
         );
+    }
+
+    #[test]
+    fn argumentless_verbs_read_as_strings() {
+        for verb in VERBS {
+            assert!(command(&format!("{verb:?}")).is_ok(), "{verb}");
+        }
     }
 
     #[test]

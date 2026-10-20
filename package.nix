@@ -41,6 +41,8 @@ rustPlatform.buildRustPackage {
     install -D $out/bin/alt $app/MacOS/alt
     substitute Info.plist $app/Info.plist --subst-var version --subst-var-by identifier ${identifier}
     installShellCompletion completions/{alt.bash,_alt}
+    install -d $out/share/alt
+    $out/bin/alt schema > $out/share/alt/config.schema.json
   '';
 
   # The bundle identifier, which names the app's permissions and log subsystem, and the path the
