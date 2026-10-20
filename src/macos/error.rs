@@ -19,6 +19,8 @@ pub enum Error {
     Unmapped(Key),
     #[error("could not create {0}")]
     Unavailable(&'static str),
+    #[error("the process runs outside an app bundle")]
+    NoBundle,
     #[error("{0} is not paired")]
     NotPaired(Device),
     #[error("Bluetooth error {1:#x} with {0}")]

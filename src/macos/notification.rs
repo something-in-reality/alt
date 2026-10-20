@@ -3,8 +3,8 @@
 use std::{ptr::NonNull, sync::mpsc, time::Duration};
 
 use block2::RcBlock;
-use objc2::{exception, rc::Retained, runtime::Bool};
-use objc2_foundation::{NSError, NSString, NSUUID};
+use objc2::{rc::Retained, runtime::Bool};
+use objc2_foundation::{NSBundle, NSError, NSString, NSUUID};
 use objc2_user_notifications::{
     UNAuthorizationOptions, UNAuthorizationStatus, UNMutableNotificationContent,
     UNNotificationRequest, UNNotificationSettings, UNUserNotificationCenter,
@@ -39,10 +39,13 @@ impl TryFrom<UNAuthorizationStatus> for Authorization {
     }
 }
 
-/// The notification center of the app bundle; it raises an exception outside one.
+/// The notification center of the app bundle that this process runs from. The framework
+/// terminates a process whose main bundle has no identifier, so that is checked first.
 fn center() -> Result<Retained<UNUserNotificationCenter>, Error> {
-    exception::catch(UNUserNotificationCenter::currentNotificationCenter)
-        .map_err(|_| Error::Unavailable("the notification center"))
+    NSBundle::mainBundle()
+        .bundleIdentifier()
+        .map(|_| UNUserNotificationCenter::currentNotificationCenter())
+        .ok_or(Error::NoBundle)
 }
 
 /// Logs the error of a completion handler, which runs on a framework queue.

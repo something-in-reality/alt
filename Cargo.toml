@@ -52,7 +52,7 @@ dispatch2 = "0.3"
 libloading = "0.8"
 libproc = "0.14"
 num_enum = "0.7"
-objc2 = { version = "0.6", features = ["exception"] }
+objc2 = "0.6"
 objc2-app-kit = "0.3"
 objc2-application-services = "0.3"
 objc2-core-foundation = "0.3"

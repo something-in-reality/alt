@@ -112,13 +112,9 @@ impl FromStr for Modifiers {
     type Err = ParseComboError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "ctrl" => Ok(Self::CTRL),
-            "alt" => Ok(Self::ALT),
-            "shift" => Ok(Self::SHIFT),
-            "super" => Ok(Self::SUPER),
-            _ => Err(ParseComboError::Modifier(s.to_owned())),
-        }
+        Self::from_name(&s.to_ascii_uppercase())
+            .filter(|_| !s.bytes().any(|byte| byte.is_ascii_uppercase()))
+            .ok_or_else(|| ParseComboError::Modifier(s.to_owned()))
     }
 }
 
