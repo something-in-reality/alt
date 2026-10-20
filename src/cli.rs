@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 /// Keyboard, pointer, window and display behaviour outside the terminal.
 ///
 /// Without a command, checks the configuration and reports the app: its process, signature and
-/// Accessibility permission.
+/// Accessibility and Notifications permissions.
 #[derive(Parser)]
 #[command(name = "alt", version)]
 pub struct Cli {
@@ -34,4 +34,7 @@ pub enum Commands {
     /// Shows the machine's one-time steps, the Accessibility permission and the Glove80's
     /// firmware, and runs those selected.
     Setup,
+    /// Prints the Notifications permission of the app bundle that runs it.
+    #[command(hide = true)]
+    Notifications,
 }

@@ -6,7 +6,7 @@ mod desktop;
 mod display;
 mod error;
 mod keymap;
-mod notification;
+pub mod notification;
 mod session;
 pub mod setup;
 pub mod status;

@@ -1,7 +1,12 @@
-//! The installed app, its process, its signature and its Accessibility permission, each read
-//! from the system.
+//! The installed app, its process, its signature and its Accessibility and Notifications
+//! permissions, each read from the system.
 
-use std::{fmt, path::Path, process::Command};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+    process::Command,
+    str,
+};
 
 use libproc::{
     libproc::proc_pid::pidpath,
@@ -9,12 +14,13 @@ use libproc::{
 };
 use objc2_core_graphics::{CGError, CGGetEventTapList};
 
-use super::BUNDLE;
+use super::{BUNDLE, notification::Authorization};
 
 /// The app at `BUNDLE`.
 pub struct Status {
     pid: Option<u32>,
     signer: Option<String>,
+    notifications: Option<Authorization>,
 }
 
 impl Status {
@@ -33,13 +39,34 @@ impl Status {
         Self {
             pid: daemon(),
             signer,
+            notifications: notifications(),
         }
     }
 }
 
+/// The installed app's executable.
+fn executable() -> PathBuf {
+    Path::new(BUNDLE).join("Contents/MacOS/alt")
+}
+
+/// The installed app's Notifications permission, read by its own executable: the notification
+/// center belongs to the bundle that the process runs from.
+fn notifications() -> Option<Authorization> {
+    let output = Command::new(executable())
+        .arg("notifications")
+        .output()
+        .ok()?;
+    str::from_utf8(&output.stdout)
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+        .filter(|_| output.status.success())
+}
+
 /// The running daemon: the process of the installed app's executable.
 pub fn daemon() -> Option<u32> {
-    let executable = Path::new(BUNDLE).join("Contents/MacOS/alt");
+    let executable = executable();
     pids_by_type(ProcFilter::All)
         .unwrap_or_default()
         .into_iter()
@@ -71,18 +98,22 @@ pub fn trusted(pid: u32) -> bool {
 impl fmt::Display for Status {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.pid {
-            Some(pid) => writeln!(f, "running:    pid {pid}")?,
-            None => writeln!(f, "running:    no")?,
+            Some(pid) => writeln!(f, "running:       pid {pid}")?,
+            None => writeln!(f, "running:       no")?,
         }
-        writeln!(f, "app:        {BUNDLE}")?;
+        writeln!(f, "app:           {BUNDLE}")?;
         match &self.signer {
-            Some(signer) => writeln!(f, "signed by:  {signer}")?,
-            None => writeln!(f, "signed by:  no certificate")?,
+            Some(signer) => writeln!(f, "signed by:     {signer}")?,
+            None => writeln!(f, "signed by:     no certificate")?,
         }
         match self.pid {
-            Some(pid) if trusted(pid) => write!(f, "permission: granted"),
-            Some(_) => write!(f, "permission: waiting"),
-            None => write!(f, "permission: unknown"),
+            Some(pid) if trusted(pid) => writeln!(f, "accessibility: granted")?,
+            Some(_) => writeln!(f, "accessibility: waiting")?,
+            None => writeln!(f, "accessibility: unknown")?,
+        }
+        match self.notifications {
+            Some(authorization) => write!(f, "notifications: {authorization}"),
+            None => write!(f, "notifications: unknown"),
         }
     }
 }

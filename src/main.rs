@@ -57,7 +57,7 @@ fn main() -> anyhow::Result<ExitCode> {
             // A reader that closes early, such as `head`, ends the report.
             match writeln!(
                 io::stdout().lock(),
-                "config:     {config}\n{}",
+                "config:        {config}\n{}",
                 Status::read()
             ) {
                 Err(error) if error.kind() == io::ErrorKind::BrokenPipe => {}
@@ -78,6 +78,7 @@ fn main() -> anyhow::Result<ExitCode> {
         }
         Some(Commands::Log) => match macos::log()? {},
         Some(Commands::Setup) => macos::setup::setup()?,
+        Some(Commands::Notifications) => println!("{}", macos::notification::authorization()?),
     }
     Ok(ExitCode::SUCCESS)
 }
