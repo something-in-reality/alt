@@ -20,5 +20,7 @@
 	<string>Bindings connect and disconnect paired Bluetooth devices.</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>LSAppNapIsDisabled</key>
+	<true/>
 </dict>
 </plist>

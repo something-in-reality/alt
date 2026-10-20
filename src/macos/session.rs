@@ -61,6 +61,7 @@ impl Input for Session {
     }
 
     fn run(self, handle: impl Fn(Event, &Front) -> Verdict + 'static) -> Result<Infallible, Error> {
+        let mtm = MainThreadMarker::new().expect("the session runs on the main thread");
         trust()?;
         let apps = Rc::new(Front {
             front: RefCell::new(app::front()),
@@ -103,7 +104,6 @@ impl Input for Session {
         watchdog();
         tracing::info!("running");
         // AppKit's event loop, which keeps NSScreen and CoreGraphics current as displays change.
-        let mtm = MainThreadMarker::new().expect("the session runs on the main thread");
         NSApplication::sharedApplication(mtm).run();
         Err(Error::RunLoopEnded)
     }
