@@ -45,7 +45,8 @@ in
       example = "/Users/me/infrastructure.key";
       description = ''
         Absolute path of the 64-hex-character seed file that the app's signing identity derives
-        from; activation reads it in place.
+        from; activation reads it in place, after the activation's earlier steps, so a secrets
+        module may install it.
       '';
     };
 
@@ -81,10 +82,11 @@ in
     # Links the schema and the firmware into /run/current-system/sw/share, on XDG_DATA_DIRS.
     environment.pathsToLink = [ "/share/alt" ];
 
-    # Runs as root, last. Trusts the app's signing certificate for code signing, then copies and
+    # Runs as root, after the activation's `mkAfter` steps (order 1500), such as a secrets module
+    # installing the seed. Trusts the app's signing certificate for code signing, then copies and
     # signs the app unless the installed executable is this build, by its Mach-O UUID, and validly
     # signed; the agent restarts onto a changed certificate or app.
-    system.activationScripts.postActivation.text = ''
+    system.activationScripts.postActivation.text = lib.mkOrder 1600 ''
       alt_restart=
       alt_certificate=$(mktemp)
       ${service.package}/bin/signing-identity ${lib.escapeShellArg service.seed} \
