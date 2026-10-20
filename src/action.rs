@@ -12,6 +12,7 @@ use serde::{
     de::{self, IntoDeserializer},
 };
 
+use serde_json::Value;
 use serde_with::DeserializeFromStr;
 
 use crate::{combo::Combo, platform::Desktop};
@@ -236,20 +237,43 @@ impl<'a> IntoIterator for &'a Command {
     }
 }
 
-/// The actions that read as a `"namespace.verb"` string: their verbs take no argument.
-const VERBS: [&str; 11] = [
-    "window.fullscreen",
-    "window.fill",
-    "window.center",
-    "media.mute",
-    "media.volume_up",
-    "media.volume_down",
-    "media.play_pause",
-    "media.next",
-    "media.previous",
-    "display.brightness_up",
-    "display.brightness_down",
-];
+/// The string constants that `schema` accepts, following references into `root`.
+fn constants<'a>(root: &'a Value, schema: &'a Value) -> Vec<&'a str> {
+    let schema = schema["$ref"]
+        .as_str()
+        .and_then(|reference| root.pointer(reference.trim_start_matches('#')))
+        .unwrap_or(schema);
+    let own = schema["const"].as_str().into_iter().chain(
+        schema["enum"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str),
+    );
+    let nested = schema["oneOf"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|variant| constants(root, variant));
+    own.chain(nested).collect()
+}
+
+/// The actions that read as a `"namespace.verb"` string: the unit variants of the namespaces,
+/// named as `Action`'s schema names them.
+fn verbs() -> Vec<String> {
+    let root = schemars::schema_for!(Action).to_value();
+    root["oneOf"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|variant| variant["properties"].as_object().into_iter().flatten())
+        .flat_map(|(namespace, schema)| {
+            constants(&root, schema)
+                .into_iter()
+                .map(move |verb| format!("{namespace}.{verb}"))
+        })
+        .collect()
+}
 
 /// One action, written `"namespace.verb"` or as a table; the string reads as
 /// `{ namespace = "verb" }`.
@@ -264,7 +288,7 @@ impl JsonSchema for Step {
         json_schema!({
             "description": "An action: \"namespace.verb\" when the verb takes no argument, or { namespace.verb = argument }.",
             "anyOf": [
-                { "type": "string", "enum": VERBS },
+                { "type": "string", "enum": verbs() },
                 generator.subschema_for::<Action>()
             ]
         })
@@ -385,9 +409,22 @@ mod tests {
 
     #[test]
     fn argumentless_verbs_read_as_strings() {
-        for verb in VERBS {
+        let verbs = verbs();
+        for verb in &verbs {
             assert!(command(&format!("{verb:?}")).is_ok(), "{verb}");
         }
+        for verb in [
+            "window.fullscreen",
+            "media.volume_up",
+            "display.brightness_down",
+        ] {
+            assert!(verbs.iter().any(|v| v == verb), "{verb}");
+        }
+        assert!(
+            !verbs
+                .iter()
+                .any(|v| v == "window.resize" || v.starts_with("exec"))
+        );
     }
 
     #[test]
