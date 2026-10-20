@@ -1,5 +1,5 @@
-//! Key combinations: modifiers and a physical key, written `ctrl+shift+tab`. Keys are W3C
-//! `KeyboardEvent.code`s in snake_case, letters and digits by their character: `b`, `1`,
+//! Key combinations: modifiers and a physical key, written `ctrl+shift+tab`, in lower case. Keys
+//! are W3C `KeyboardEvent.code`s in snake_case, letters and digits by their character: `b`, `1`,
 //! `page_up`, `f3`, `backquote`.
 
 use std::{borrow::Cow, fmt, str::FromStr};
@@ -52,9 +52,11 @@ impl JsonSchema for Combo {
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ParseComboError {
-    #[error("unknown modifier `{0}`; expected ctrl, alt, shift or super")]
+    #[error("unknown modifier `{0}`; expected ctrl, alt, shift or super in lower case")]
     Modifier(String),
-    #[error("unknown key `{0}`; expected a key such as a, 1, home, page_up or backquote")]
+    #[error(
+        "unknown key `{0}`; expected a lower case key such as a, 1, home, page_up or backquote"
+    )]
     Key(String),
 }
 
@@ -72,7 +74,9 @@ impl FromStr for Key {
         };
         code.parse()
             .map(Self::Code)
-            .map_err(|_| ParseComboError::Key(s.to_owned()))
+            .ok()
+            .filter(|key| key.to_string() == s)
+            .ok_or_else(|| ParseComboError::Key(s.to_owned()))
     }
 }
 
@@ -108,8 +112,13 @@ impl FromStr for Modifiers {
     type Err = ParseComboError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_name(&s.to_ascii_uppercase())
-            .ok_or_else(|| ParseComboError::Modifier(s.to_owned()))
+        match s {
+            "ctrl" => Ok(Self::CTRL),
+            "alt" => Ok(Self::ALT),
+            "shift" => Ok(Self::SHIFT),
+            "super" => Ok(Self::SUPER),
+            _ => Err(ParseComboError::Modifier(s.to_owned())),
+        }
     }
 }
 
@@ -172,9 +181,16 @@ mod tests {
     }
 
     #[test]
-    fn modifiers_are_case_insensitive_and_canonical() {
-        let combo: Combo = "Shift+CTRL+tab".parse().unwrap();
-        assert_eq!(combo.to_string(), "ctrl+shift+tab");
+    fn rejects_upper_case() {
+        for s in [
+            "Shift+CTRL+tab",
+            "ctrl+Tab",
+            "ctrl+TAB",
+            "ctrl+Page_Up",
+            "A",
+        ] {
+            assert!(s.parse::<Combo>().is_err(), "{s}");
+        }
     }
 
     #[test]
