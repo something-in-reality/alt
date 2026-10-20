@@ -35,8 +35,6 @@ pub enum Error {
     NoBuiltinDisplay,
     #[error("DisplayServices error {0}")]
     DisplayServices(i32),
-    #[error("showing a notification: {0}")]
-    Notification(#[from] notify_rust::error::Error),
     #[error("loading DisplayServices: {0}")]
     Library(#[from] libloading::Error),
     #[error(transparent)]

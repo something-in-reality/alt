@@ -4,7 +4,8 @@ use dispatch2::{DispatchQueue, DispatchQueueAttr, DispatchRetained};
 use objc2::rc::autoreleasepool;
 
 use super::{
-    Error, app, bluetooth, display::Displays, synth::Source, system_key::SystemKey, window,
+    Error, app, bluetooth, display::Displays, notification, synth::Source, system_key::SystemKey,
+    window,
 };
 use crate::{
     action::{App, AppId, Bluetooth, Command, Display, Keyboard, Media, Window},
@@ -29,8 +30,9 @@ pub struct Mac {
 
 impl Dispatcher {
     pub fn new() -> Result<Self, Error> {
-        // Notifications show as the app.
-        notify_rust::set_application(super::IDENTIFIER).map_err(notify_rust::error::Error::from)?;
+        if let Err(error) = notification::authorize() {
+            tracing::warn!(%error, "requesting notification authorization");
+        }
         Ok(Self {
             actions: DispatchQueue::new("alt.actions", DispatchQueueAttr::SERIAL),
             launches: DispatchQueue::new("alt.launches", DispatchQueueAttr::SERIAL),
@@ -100,7 +102,6 @@ impl Desktop for Mac {
     }
 
     fn notify(&self, text: &str) -> Result<(), Error> {
-        notify_rust::Notification::new().summary(text).show()?;
-        Ok(())
+        notification::post(text)
     }
 }
