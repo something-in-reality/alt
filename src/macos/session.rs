@@ -103,7 +103,8 @@ impl Input for Session {
         .ok_or(Error::Tap)?;
         watchdog();
         tracing::info!("running");
-        // AppKit's event loop, which keeps NSScreen and CoreGraphics current as displays change.
+        // AppKit's event loop, which delivers the NSWorkspace notifications and the UserNotifications
+        // authorization prompt.
         NSApplication::sharedApplication(mtm).run();
         Err(Error::RunLoopEnded)
     }

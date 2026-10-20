@@ -26,6 +26,10 @@ end = { app.focus = "com.mitchellh.ghostty" }
 "ctrl+alt+arrow_right" = { window.tile = "right" }
 "ctrl+alt+arrow_up" = "window.fullscreen"
 "ctrl+alt+arrow_down" = { window.display = "next" }
+"ctrl+alt+shift+arrow_left" = { window.tile = "top_left" }
+"ctrl+alt+shift+arrow_right" = { window.tile = "bottom_right" }
+"ctrl+alt+enter" = "window.fill"
+"ctrl+alt+c" = "window.center"
 
 [app_id."org.nixos.firefox"]
 on_launch = "window.fullscreen"

@@ -36,16 +36,24 @@ on_launch = { app.kill = "com.apple.Music" }
 Keys are W3C `KeyboardEvent.code` names in snake case; modifiers are `ctrl`, `alt`, `shift`,
 `super`. An action is `"namespace.verb"` or `{ namespace.verb = argument }`:
 
-| Namespace   | Verbs                                                                       |
-| ----------- | --------------------------------------------------------------------------- |
-| `app`       | `focus`, `kill`                                                             |
-| `window`    | `fullscreen`, `fullscreen_tile`, `tile`, `display`, `resize`                |
-| `keyboard`  | `press`, `type`                                                             |
-| `media`     | `mute`, `volume_up`, `volume_down`, `play_pause`, `next`, `previous`        |
-| `display`   | `brightness_up`, `brightness_down`                                          |
-| `bluetooth` | `connect`, `disconnect`, `toggle`                                           |
-| `exec`      | a shell command                                                             |
-| `notify`    | a `strftime` template                                                       |
+| Namespace   | Verbs                                                                          |
+| ----------- | ------------------------------------------------------------------------------ |
+| `app`       | `focus`, `kill`                                                                |
+| `window`    | `fullscreen`, `fullscreen_tile`, `tile`, `fill`, `center`, `display`, `resize` |
+| `keyboard`  | `press`, `type`                                                                |
+| `media`     | `mute`, `volume_up`, `volume_down`, `play_pause`, `next`, `previous`           |
+| `display`   | `brightness_up`, `brightness_down`                                             |
+| `bluetooth` | `connect`, `disconnect`, `toggle`                                              |
+| `exec`      | a shell command                                                                |
+| `notify`    | a `strftime` template                                                          |
+
+Window verbs press items of the application's Window menu. `window.tile` takes `left`, `right`,
+`top`, `bottom`, `top_left`, `top_right`, `bottom_left` or `bottom_right` (Move & Resize);
+`window.fill` and `window.center` take nothing; `window.fullscreen_tile` takes `left` or `right`
+(Full Screen Tile); `window.display` takes `builtin`, `next`, `previous` or a display's name, for
+the Window menu's "Move to" items, which list the other displays. `window.resize` and
+`window.fullscreen` set the window's Accessibility attributes. Menu items are found by their
+English titles.
 
 `config.toml` is the full example.
 

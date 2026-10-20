@@ -46,7 +46,8 @@ pub enum App {
     Kill(AppId),
 }
 
-/// Acts on the focused window, or in an application's `on_launch` command, on its window.
+/// Acts on the focused window, or in an application's `on_launch` command, on its window. Tiling,
+/// filling, centring and display moves press items of the application's Window menu.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Window {
@@ -57,9 +58,14 @@ pub enum Window {
     /// Puts the window in one half of a full-screen split, through the application's Window menu;
     /// macOS then offers the other windows for the other half.
     FullscreenTile(Side),
-    /// Fills one half of the window's display.
-    Tile(Side),
-    /// Moves the window to a display, at the same place relative to the display.
+    /// Moves and resizes the window to a half or quarter of its display, through Window > Move &
+    /// Resize.
+    Tile(Tile),
+    /// Fills the window's display, through Window > Fill.
+    Fill,
+    /// Centres the window on its display, through Window > Center.
+    Center,
+    /// Moves the window to a display, through Window > Move to.
     Display(Screen),
 }
 
@@ -71,7 +77,23 @@ pub enum Side {
     Right,
 }
 
-/// A display: `builtin`, `next` or `previous` from left to right, or an external display's name.
+/// A half or quarter of a display; the display names the Window > Move & Resize item.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, strum::Display)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "title_case")]
+pub enum Tile {
+    Left,
+    Right,
+    Top,
+    Bottom,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+/// A display of the Window menu's "Move to" items: `builtin`; `next`, the first of them;
+/// `previous`, the last; or a display's name.
 #[derive(Clone, Debug, PartialEq, Eq, DeserializeFromStr, strum::Display, strum::EnumString)]
 #[strum(serialize_all = "lowercase")]
 pub enum Screen {
@@ -325,12 +347,15 @@ mod tests {
     #[test]
     fn window_actions_read_their_targets() {
         assert_eq!(
-            command(r#"["window.fullscreen", { window.fullscreen_tile = "right" }, { window.tile = "left" }, { window.display = "MSI MP341CQ" }]"#)
+            command(r#"["window.fullscreen", { window.fullscreen_tile = "right" }, { window.tile = "left" }, { window.tile = "bottom_right" }, "window.fill", "window.center", { window.display = "MSI MP341CQ" }]"#)
                 .unwrap(),
             [
                 Action::Window(Window::Fullscreen),
                 Action::Window(Window::FullscreenTile(Side::Right)),
-                Action::Window(Window::Tile(Side::Left)),
+                Action::Window(Window::Tile(Tile::Left)),
+                Action::Window(Window::Tile(Tile::BottomRight)),
+                Action::Window(Window::Fill),
+                Action::Window(Window::Center),
                 Action::Window(Window::Display(Screen::Named("MSI MP341CQ".to_owned()))),
             ]
         );
@@ -338,11 +363,13 @@ mod tests {
             command(r#"{ window.display = "builtin" }"#).unwrap(),
             [Action::Window(Window::Display(Screen::Builtin))]
         );
-        assert!(!Action::Window(Window::Tile(Side::Right)).repeats());
+        assert!(!Action::Window(Window::Tile(Tile::Right)).repeats());
         assert_eq!(
             command(r#"{ notify = "%H:%M" }"#).unwrap(),
             [Action::Notify("%H:%M".to_owned())]
         );
+        assert_eq!(Tile::TopLeft.to_string(), "Top Left");
+        assert_eq!(Tile::Bottom.to_string(), "Bottom");
         for screen in ["builtin", "next", "MSI MP341CQ"] {
             assert_eq!(screen.parse::<Screen>().unwrap().to_string(), screen);
         }

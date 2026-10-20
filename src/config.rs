@@ -114,6 +114,10 @@ mod tests {
         let config: Config = EXAMPLE.parse().unwrap();
         assert_eq!(config.input.pointer.natural_scroll, Some(false));
         assert!(config.display.sync_brightness);
+        assert_eq!(
+            command(&config, None, "ctrl+alt+enter"),
+            Some(vec![Action::Window(Window::Fill)])
+        );
     }
 
     #[test]

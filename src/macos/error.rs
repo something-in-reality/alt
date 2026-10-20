@@ -29,8 +29,6 @@ pub enum Error {
     NoDisplay(Screen),
     #[error("no menu item {0}")]
     NoMenuItem(String),
-    #[error("the window is in full screen")]
-    Fullscreen,
     #[error("no built-in display")]
     NoBuiltinDisplay,
     #[error("DisplayServices error {0}")]
