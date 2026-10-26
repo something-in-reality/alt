@@ -28,7 +28,7 @@ use objc2_core_graphics::{CGEvent, CGEventField, CGEventType};
 use objc2_foundation::{NSString, NSUserDefaults};
 
 use super::{
-    Error, app, keymap, synth,
+    Error, app, keymap, scroll, synth,
     system_key::{SYSTEM_DEFINED, SystemKey},
     tap::Tap,
 };
@@ -96,7 +96,10 @@ impl Input for Session {
                 match handle(input, &apps) {
                     Verdict::Pass => true,
                     Verdict::Drop => false,
-                    Verdict::Reverse => !synth::reverse_scroll(event),
+                    Verdict::Reverse => {
+                        scroll::reverse(event);
+                        true
+                    }
                 }
             },
         )

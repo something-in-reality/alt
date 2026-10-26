@@ -7,6 +7,7 @@ mod display;
 mod error;
 mod keymap;
 pub mod notification;
+mod scroll;
 mod session;
 pub mod setup;
 pub mod status;
