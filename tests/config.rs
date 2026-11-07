@@ -160,6 +160,16 @@ fn common_mistakes_point_at_the_offending_text() {
             "unknown key `tee`; expected a lower case key such as a, 1, home, page_up or backquote",
         ),
         (
+            "[shortcuts]\naudio_volume_up = []",
+            "audio_volume_up",
+            "a shortcut cannot match `audio_volume_up`",
+        ),
+        (
+            "[shortcuts]\nctrl-shift_left = []",
+            "ctrl-shift_left",
+            "a shortcut cannot match `shift_left`",
+        ),
+        (
             "[shortcuts]\nf1 = { tlie = \"left\" }",
             "{ tlie = \"left\" }",
             "unknown variant `tlie`, expected one of `press`, `type`, `open`",
@@ -249,6 +259,10 @@ fn the_schema_agrees_with_the_parser() {
         ("[shortcuts]\n\"ctrl--a\" = []", false),
         ("[shortcuts]\nsuper-a = []", false),
         ("[shortcuts]\nCtrl-a = []", false),
+        ("[shortcuts]\ncaps_lock = []", false),
+        ("[shortcuts]\nfn = []", false),
+        ("[shortcuts]\ncontrol_left = []", false),
+        ("[shortcuts]\nbrightness_up = []", false),
         ("[shortcuts]\nf1 = { press = \"brightness_up\" }", true),
         (
             "[shortcuts]\nf1 = { press = \"cmd-audio_volume_up\" }",

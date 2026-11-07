@@ -97,6 +97,7 @@ impl TryFrom<Key> for SystemKey {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::combo::Shortcut;
 
     #[test]
     fn key_types_round_trip() {
@@ -104,5 +105,23 @@ mod tests {
             assert_eq!(SystemKey::try_from(key as isize), Ok(key));
         }
         assert!(SystemKey::try_from(4).is_err());
+    }
+
+    #[test]
+    fn system_keys_are_not_shortcuts() {
+        for name in [
+            "audio_volume_up",
+            "audio_volume_down",
+            "audio_volume_mute",
+            "media_play_pause",
+            "media_track_next",
+            "media_track_previous",
+            "brightness_up",
+            "brightness_down",
+        ] {
+            let key: Key = name.parse().unwrap();
+            assert!(SystemKey::try_from(key).is_ok(), "{name}");
+            assert!(name.parse::<Shortcut>().is_err(), "{name}");
+        }
     }
 }

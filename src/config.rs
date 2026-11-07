@@ -22,7 +22,7 @@ use serde_with::DeserializeFromStr;
 
 use crate::{
     action::{BundleId, Command},
-    combo::Combo,
+    combo::{Combo, Shortcut},
 };
 
 /// `$XDG_CONFIG_HOME/alt/config.toml`: shortcuts and settings for every application, and a table per application by bundle identifier.
@@ -129,7 +129,7 @@ pub struct App {
 /// repeated shortcut.
 #[derive(Debug, Default, Deserialize)]
 #[serde(transparent)]
-pub struct Shortcuts(HashMap<Combo, Binding>);
+pub struct Shortcuts(HashMap<Shortcut, Binding>);
 
 impl Shortcuts {
     pub fn get(&self, combo: &Combo) -> Option<&Binding> {
@@ -146,7 +146,7 @@ impl JsonSchema for Shortcuts {
         json_schema!({
             "description": "Bindings by shortcut.",
             "type": "object",
-            "propertyNames": generator.subschema_for::<Combo>(),
+            "propertyNames": generator.subschema_for::<Shortcut>(),
             "additionalProperties": generator.subschema_for::<Binding>()
         })
     }

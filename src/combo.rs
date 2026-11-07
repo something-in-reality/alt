@@ -2,7 +2,7 @@
 //! in Apple's order: `ctrl-alt-shift-cmd-key`. Keys are W3C `KeyboardEvent.code`s in snake_case,
 //! letters and digits by their character: `b`, `1`, `page_up`, `f3`, `backquote`.
 
-use std::{borrow::Cow, fmt, str::FromStr};
+use std::{borrow::Borrow, borrow::Cow, fmt, str::FromStr};
 
 use bitflags::bitflags;
 use keycode::KeyMappingCode;
@@ -38,6 +38,29 @@ pub struct Combo {
 /// The modifiers of a combination's pattern, each at most once and in order.
 const MODIFIERS_PATTERN: &str = "(ctrl-)?(alt-)?(shift-)?(cmd-)?";
 
+/// Keys that no key-down event carries: modifiers, Caps Lock and Fn arrive as flag changes, and
+/// media and brightness keys as system-defined events.
+const NO_KEY_DOWN: [KeyMappingCode; 18] = [
+    KeyMappingCode::ControlLeft,
+    KeyMappingCode::ControlRight,
+    KeyMappingCode::AltLeft,
+    KeyMappingCode::AltRight,
+    KeyMappingCode::ShiftLeft,
+    KeyMappingCode::ShiftRight,
+    KeyMappingCode::MetaLeft,
+    KeyMappingCode::MetaRight,
+    KeyMappingCode::CapsLock,
+    KeyMappingCode::Fn,
+    KeyMappingCode::AudioVolumeUp,
+    KeyMappingCode::AudioVolumeDown,
+    KeyMappingCode::AudioVolumeMute,
+    KeyMappingCode::MediaPlayPause,
+    KeyMappingCode::MediaTrackNext,
+    KeyMappingCode::MediaTrackPrevious,
+    KeyMappingCode::BrightnessUp,
+    KeyMappingCode::BrightnessDown,
+];
+
 impl JsonSchema for Combo {
     fn schema_name() -> Cow<'static, str> {
         "Combo".into()
@@ -53,6 +76,39 @@ impl JsonSchema for Combo {
     }
 }
 
+/// A combination that a key-down event carries: its key is not a modifier, Caps Lock, Fn or a
+/// system key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, DeserializeFromStr)]
+pub struct Shortcut(Combo);
+
+impl JsonSchema for Shortcut {
+    fn schema_name() -> Cow<'static, str> {
+        "Shortcut".into()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        let keys = NO_KEY_DOWN
+            .map(|code| Key::Code(code).to_string())
+            .join("|");
+        let mut schema = Combo::json_schema(generator);
+        schema.insert(
+            "description".into(),
+            "A combination of modifiers (ctrl, alt, shift, cmd, in that order) and a key that a key press carries: not a modifier, Caps Lock, Fn, or a media or brightness key.".into(),
+        );
+        schema.insert(
+            "not".into(),
+            json_schema!({ "pattern": format!("^{MODIFIERS_PATTERN}({keys})$") }).to_value(),
+        );
+        schema
+    }
+}
+
+impl Borrow<Combo> for Shortcut {
+    fn borrow(&self) -> &Combo {
+        &self.0
+    }
+}
+
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ParseComboError {
     #[error("unknown modifier `{0}`; expected ctrl, alt, shift or cmd in lower case")]
@@ -63,6 +119,8 @@ pub enum ParseComboError {
     Key(String),
     #[error("modifiers go in the order ctrl, alt, shift, cmd: write `{0}`")]
     Order(Combo),
+    #[error("a shortcut cannot match `{0}`, which the system does not report as a key press")]
+    NoKeyDown(Key),
 }
 
 impl FromStr for Key {
@@ -158,8 +216,24 @@ impl fmt::Display for Combo {
     }
 }
 
+impl FromStr for Shortcut {
+    type Err = ParseComboError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let combo: Combo = s.parse()?;
+        match combo.key {
+            Key::Code(code) if NO_KEY_DOWN.contains(&code) => {
+                Err(ParseComboError::NoKeyDown(combo.key))
+            }
+            _ => Ok(Self(combo)),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use keycode::{KeyMap, KeyMapping};
+
     use super::*;
 
     const CANONICAL: [&str; 9] = [
@@ -173,6 +247,10 @@ mod tests {
         "dictation",
         "f10",
     ];
+
+    fn validator(schema: Schema) -> jsonschema::Validator {
+        jsonschema::validator_for(&schema.to_value()).unwrap()
+    }
 
     #[test]
     fn round_trips() {
@@ -207,8 +285,8 @@ mod tests {
 
     #[test]
     fn parser_and_schema_agree_on_syntax() {
-        let schema = schemars::schema_for!(Combo).to_value();
-        let combo = jsonschema::validator_for(&schema).unwrap();
+        let combo = validator(schemars::schema_for!(Combo));
+        let shortcut = validator(Shortcut::json_schema(&mut SchemaGenerator::default()));
         for (s, valid) in [
             ("a", true),
             ("ctrl-a", true),
@@ -230,9 +308,60 @@ mod tests {
         ] {
             assert_eq!(s.parse::<Combo>().is_ok(), valid, "combo parser: {s:?}");
             assert_eq!(combo.is_valid(&s.into()), valid, "combo schema: {s:?}");
+            assert_eq!(
+                s.parse::<Shortcut>().is_ok(),
+                valid,
+                "shortcut parser: {s:?}"
+            );
+            assert_eq!(
+                shortcut.is_valid(&s.into()),
+                valid,
+                "shortcut schema: {s:?}"
+            );
         }
         for s in CANONICAL {
             assert!(combo.is_valid(&s.into()), "{s}");
+        }
+    }
+
+    #[test]
+    fn shortcuts_exclude_keys_that_no_key_down_carries() {
+        let shortcut = validator(Shortcut::json_schema(&mut SchemaGenerator::default()));
+        for s in [
+            "control_left",
+            "cmd-meta_right",
+            "shift_left",
+            "caps_lock",
+            "ctrl-fn",
+            "audio_volume_up",
+            "alt-media_play_pause",
+            "brightness_down",
+        ] {
+            assert!(s.parse::<Combo>().is_ok(), "press accepts {s}");
+            assert!(matches!(
+                s.parse::<Shortcut>(),
+                Err(ParseComboError::NoKeyDown(_))
+            ));
+            assert!(!shortcut.is_valid(&s.into()), "schema: {s}");
+        }
+        for s in ["f6", "dictation", "ctrl-enter", "a", "cmd-home"] {
+            assert_eq!(
+                s.parse::<Shortcut>().is_ok(),
+                shortcut.is_valid(&s.into()),
+                "{s}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_modifier_key_is_excluded_from_shortcuts() {
+        for mac in 0..=u16::from(u8::MAX) {
+            let Ok(map) = KeyMap::from_key_mapping(KeyMapping::Mac(mac)) else {
+                continue;
+            };
+            if let (Some(code), Some(_)) = (map.code, map.modifier) {
+                assert!(NO_KEY_DOWN.contains(&code), "{code}");
+            }
         }
     }
 
