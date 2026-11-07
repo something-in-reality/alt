@@ -9,7 +9,10 @@ use std::{
 };
 
 use libproc::{
-    libproc::proc_pid::pidpath,
+    libproc::{
+        bsd_info::BSDInfo,
+        proc_pid::{pidinfo, pidpath},
+    },
     processes::{ProcFilter, pids_by_type},
 };
 use objc2_core_graphics::{CGError, CGGetEventTapList};
@@ -64,17 +67,18 @@ fn notifications() -> Option<Authorization> {
         .filter(|_| output.status.success())
 }
 
-/// The running daemon: the process of the installed app's executable.
+/// The running daemon: the process of the installed app's executable that launchd started.
 pub fn daemon() -> Option<u32> {
     let executable = executable();
     pids_by_type(ProcFilter::All)
         .unwrap_or_default()
         .into_iter()
         .find(|&pid| {
-            i32::try_from(pid)
-                .ok()
-                .and_then(|pid| pidpath(pid).ok())
-                .is_some_and(|path| Path::new(&path) == executable)
+            let Ok(pid) = i32::try_from(pid) else {
+                return false;
+            };
+            pidpath(pid).is_ok_and(|path| Path::new(&path) == executable)
+                && pidinfo::<BSDInfo>(pid, 0).is_ok_and(|info| info.pbi_ppid == 1)
         })
 }
 
