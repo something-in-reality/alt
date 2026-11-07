@@ -1,0 +1,45 @@
+#:schema /run/current-system/sw/share/alt/config.schema.json
+# A shortcut is modifiers (ctrl, alt, shift, cmd, in that order) and a key, joined by `-`; keys are
+# W3C KeyboardEvent.code names in snake_case, letters and digits by character. An action is a verb,
+# or { verb = argument }; a list runs in order. An application's table, by bundle identifier,
+# applies while the application is in front.
+
+[mouse]
+natural_scrolling = false
+
+[displays]
+sync_brightness = true
+
+[shortcuts]
+f1 = { press = "dictation" }
+f6 = { press = "audio_volume_mute" }
+f7 = { press = "audio_volume_down" }
+f8 = { press = "audio_volume_up" }
+f9 = { press = "brightness_down" }
+f10 = { press = "brightness_up" }
+ctrl-t = { type = "✓" }
+home = { open = "org.mozilla.firefox" }
+end = { open = "com.mitchellh.ghostty" }
+# alt-b = { toggle_connection = "f8-8f-07-40-54-34" }
+cmd-home = { resize = { width = 100 } }
+cmd-end = { resize = { width = -100 } }
+# The time, as a notification.
+# <key> = { notify = "%H:%M · %a %-d %b" }
+
+# Cmd-H hides the front application; an empty list drops the key.
+cmd-h = []
+
+["org.mozilla.firefox"]
+on_launch = "full_screen"
+shortcuts.page_up = { press = "ctrl-shift-tab" }
+shortcuts.page_down = { press = "ctrl-tab" }
+shortcuts.cmd-home = { resize = { width = -100 } }
+shortcuts.cmd-end = { resize = { width = 100 } }
+
+["com.apple.Music"]
+on_launch = { force_quit = "com.apple.Music" }
+
+["com.mitchellh.ghostty"]
+on_launch = "full_screen"
+# Cmd-H reaches Ghostty, which moves to the split on the left.
+shortcuts.cmd-h = false

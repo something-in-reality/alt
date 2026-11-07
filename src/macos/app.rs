@@ -10,25 +10,26 @@ use objc2_app_kit::{
 use objc2_foundation::{NSNotification, NSNotificationName, NSObjectProtocol, NSString};
 
 use super::Error;
-use crate::action::AppId;
+use crate::action::BundleId;
 
-fn id(app: &NSRunningApplication) -> Option<AppId> {
-    app.bundleIdentifier().map(|id| AppId::from(id.to_string()))
+fn id(app: &NSRunningApplication) -> Option<BundleId> {
+    app.bundleIdentifier()
+        .and_then(|id| id.to_string().parse().ok())
 }
 
-fn running(app: &AppId) -> Result<Retained<NSRunningApplication>, Error> {
+fn running(app: &BundleId) -> Result<Retained<NSRunningApplication>, Error> {
     NSRunningApplication::runningApplicationsWithBundleIdentifier(&NSString::from_str(app.as_ref()))
         .firstObject()
         .ok_or_else(|| Error::NotRunning(app.clone()))
 }
 
 /// A running application's process identifier.
-pub fn pid(app: &AppId) -> Result<i32, Error> {
+pub fn pid(app: &BundleId) -> Result<i32, Error> {
     Ok(running(app)?.processIdentifier())
 }
 
 /// The application in front.
-pub fn front() -> Option<AppId> {
+pub fn front() -> Option<BundleId> {
     NSWorkspace::sharedWorkspace()
         .frontmostApplication()
         .as_deref()
@@ -36,7 +37,7 @@ pub fn front() -> Option<AppId> {
 }
 
 /// Brings an application to the front, launching it when it is not running.
-pub fn focus(app: &AppId) -> Result<(), Error> {
+pub fn open(app: &BundleId) -> Result<(), Error> {
     let workspace = NSWorkspace::sharedWorkspace();
     let url = workspace
         .URLForApplicationWithBundleIdentifier(&NSString::from_str(app.as_ref()))
@@ -50,13 +51,13 @@ pub fn focus(app: &AppId) -> Result<(), Error> {
 }
 
 /// Force-quits a running application.
-pub fn kill(app: &AppId) -> Result<(), Error> {
+pub fn force_quit(app: &BundleId) -> Result<(), Error> {
     running(app)?.forceTerminate();
     Ok(())
 }
 
 /// The running applications.
-pub fn all() -> impl Iterator<Item = AppId> {
+pub fn all() -> impl Iterator<Item = BundleId> {
     NSWorkspace::sharedWorkspace()
         .runningApplications()
         .into_iter()
@@ -66,7 +67,7 @@ pub fn all() -> impl Iterator<Item = AppId> {
 /// Calls `f` with the application of each NSWorkspace `notification`, while the observer lives.
 pub fn observe(
     notification: &NSNotificationName,
-    f: impl Fn(AppId) + 'static,
+    f: impl Fn(BundleId) + 'static,
 ) -> Retained<ProtocolObject<dyn NSObjectProtocol>> {
     let block = RcBlock::new(move |notification: NonNull<NSNotification>| {
         let app = unsafe { notification.as_ref() }

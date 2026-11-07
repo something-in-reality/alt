@@ -33,7 +33,7 @@ use super::{
     tap::Tap,
 };
 use crate::{
-    action::AppId,
+    action::BundleId,
     combo::Combo,
     event::{Context, Event, System, Verdict},
     platform::Input,
@@ -45,7 +45,7 @@ pub struct Session;
 /// The front application, which NSWorkspace's notifications keep current, so a decision reads it
 /// without a call to another process.
 pub struct Front {
-    front: RefCell<Option<AppId>>,
+    front: RefCell<Option<BundleId>>,
 }
 
 impl Input for Session {
@@ -56,7 +56,7 @@ impl Input for Session {
         let defaults = NSUserDefaults::standardUserDefaults();
         let key = NSString::from_str("com.apple.swipescrolldirection");
         System {
-            natural_scroll: defaults.objectForKey(&key).is_none() || defaults.boolForKey(&key),
+            natural_scrolling: defaults.objectForKey(&key).is_none() || defaults.boolForKey(&key),
         }
     }
 
@@ -114,7 +114,7 @@ impl Input for Session {
 }
 
 impl Context for Front {
-    fn front(&self) -> Option<AppId> {
+    fn front(&self) -> Option<BundleId> {
         self.front.borrow().clone()
     }
 }

@@ -11,7 +11,7 @@ use objc2_application_services::{AXError, AXUIElement, AXValue, AXValueType};
 use objc2_core_foundation::{CFArray, CFBoolean, CFRetained, CFString, CFType, CGSize};
 
 use super::{Error, app};
-use crate::action::{AppId, Screen, Side, Window};
+use crate::action::{BundleId, Screen, Side, Size, Tile};
 
 /// Polls for an application's window, which opens after its launch notification: 15 seconds.
 const POLL: Duration = Duration::from_millis(250);
@@ -20,61 +20,88 @@ const ATTEMPTS: u32 = 60;
 /// The Window menu's items that move the window to a display are titled `Move to <display>`.
 const MOVE_TO: &str = "Move to ";
 
-/// Performs `action` on `app`'s main window once it opens, or without `app` on the focused window.
-pub fn perform(action: &Window, app: Option<&AppId>) -> Result<(), Error> {
-    let (application, window) = match app {
-        Some(app) => {
-            let application = unsafe { AXUIElement::new_application(app::pid(app)?) };
-            let window = main_window(&application)?;
-            (application, window)
-        }
-        None => {
-            let system = unsafe { AXUIElement::new_system_wide() };
-            let application = element(attribute(&system, "AXFocusedApplication")?)?;
-            let window = element(attribute(&application, "AXFocusedWindow")?)?;
-            (application, window)
-        }
-    };
-    match action {
-        Window::Resize(change) => {
-            let size: CGSize = get(&window, "AXSize", AXValueType::CGSize)?;
-            let size = CGSize {
-                width: size.width + f64::from(change.width),
-                height: size.height + f64::from(change.height),
-            };
-            put(&window, "AXSize", AXValueType::CGSize, &size)
-        }
-        Window::Fullscreen => set(&window, "AXFullScreen", CFBoolean::new(true)),
-        Window::FullscreenTile(side) => press_menu(
-            &application,
+/// A window and its application, whose menu bar tiling and display moves press.
+pub struct Window {
+    application: CFRetained<AXUIElement>,
+    window: CFRetained<AXUIElement>,
+}
+
+impl Window {
+    /// `app`'s main window once it opens, or without `app` the focused window.
+    pub fn new(app: Option<&BundleId>) -> Result<Self, Error> {
+        let (application, window) = match app {
+            Some(app) => {
+                let application = unsafe { AXUIElement::new_application(app::pid(app)?) };
+                let window = main_window(&application)?;
+                (application, window)
+            }
+            None => {
+                let system = unsafe { AXUIElement::new_system_wide() };
+                let application = element(attribute(&system, "AXFocusedApplication")?)?;
+                let window = element(attribute(&application, "AXFocusedWindow")?)?;
+                (application, window)
+            }
+        };
+        Ok(Self {
+            application,
+            window,
+        })
+    }
+
+    pub fn resize(&self, change: Size) -> Result<(), Error> {
+        let size: CGSize = get(&self.window, "AXSize", AXValueType::CGSize)?;
+        let size = CGSize {
+            width: size.width + f64::from(change.width),
+            height: size.height + f64::from(change.height),
+        };
+        put(&self.window, "AXSize", AXValueType::CGSize, &size)
+    }
+
+    pub fn full_screen(&self) -> Result<(), Error> {
+        set(&self.window, "AXFullScreen", CFBoolean::new(true))
+    }
+
+    pub fn full_screen_tile(&self, side: Side) -> Result<(), Error> {
+        press_menu(
+            &self.application,
             &["Window", "Full Screen Tile"],
             match side {
                 Side::Left => "Left of Screen",
                 Side::Right => "Right of Screen",
             },
-        ),
-        Window::Tile(tile) => press_menu(
-            &application,
+        )
+    }
+
+    pub fn tile(&self, tile: Tile) -> Result<(), Error> {
+        press_menu(
+            &self.application,
             &["Window", "Move & Resize"],
             &tile.to_string(),
-        ),
-        Window::Fill => press_menu(&application, &["Window"], "Fill"),
-        Window::Center => press_menu(&application, &["Window"], "Center"),
-        Window::Display(screen) => {
-            let items = menu(&application, &["Window"])?;
-            let targets: Vec<_> = items
-                .iter()
-                .filter_map(|item| {
-                    let title = title(item)?;
-                    Some((item, title.strip_prefix(MOVE_TO)?.to_owned()))
-                })
-                .collect();
-            let names: Vec<_> = targets.iter().map(|(_, name)| name.as_str()).collect();
-            let (item, name) = select(screen, &names)
-                .map(|index| &targets[index])
-                .ok_or_else(|| Error::NoDisplay(screen.clone()))?;
-            press(item, &format!("Window > {MOVE_TO}{name}"))
-        }
+        )
+    }
+
+    pub fn fill(&self) -> Result<(), Error> {
+        press_menu(&self.application, &["Window"], "Fill")
+    }
+
+    pub fn center(&self) -> Result<(), Error> {
+        press_menu(&self.application, &["Window"], "Center")
+    }
+
+    pub fn move_to(&self, screen: &Screen) -> Result<(), Error> {
+        let items = menu(&self.application, &["Window"])?;
+        let targets: Vec<_> = items
+            .iter()
+            .filter_map(|item| {
+                let title = title(item)?;
+                Some((item, title.strip_prefix(MOVE_TO)?.to_owned()))
+            })
+            .collect();
+        let names: Vec<_> = targets.iter().map(|(_, name)| name.as_str()).collect();
+        let (item, name) = select(screen, &names)
+            .map(|index| &targets[index])
+            .ok_or_else(|| Error::NoDisplay(screen.clone()))?;
+        press(item, &format!("Window > {MOVE_TO}{name}"))
     }
 }
 
@@ -84,7 +111,7 @@ fn select(screen: &Screen, names: &[&str]) -> Option<usize> {
     match screen {
         Screen::Next => (!names.is_empty()).then_some(0),
         Screen::Previous => names.len().checked_sub(1),
-        Screen::Builtin => names.iter().position(|name| name.starts_with("Built-in")),
+        Screen::BuiltIn => names.iter().position(|name| name.starts_with("Built-in")),
         Screen::Named(wanted) => names.iter().position(|name| name == wanted),
     }
 }
@@ -232,7 +259,7 @@ mod tests {
         let select = |screen: &str| select(&screen.parse().unwrap(), &names);
         assert_eq!(select("next"), Some(0));
         assert_eq!(select("previous"), Some(2));
-        assert_eq!(select("builtin"), Some(0));
+        assert_eq!(select("built_in"), Some(0));
         assert_eq!(select("MSI MP341CQ"), Some(1));
         assert_eq!(select("Unknown"), None);
         assert_eq!(super::select(&Screen::Next, &[]), None);

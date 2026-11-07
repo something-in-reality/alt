@@ -4,11 +4,11 @@ use dispatch2::{DispatchQueue, DispatchQueueAttr, DispatchRetained};
 use objc2::rc::autoreleasepool;
 
 use super::{
-    Error, app, bluetooth, display::Displays, notification, synth::Source, system_key::SystemKey,
-    window,
+    Error, app, bluetooth, display::Displays, notification, synth::Source, window::Window,
 };
 use crate::{
-    action::{App, AppId, Bluetooth, Command, Display, Keyboard, Media, Window},
+    action::{BundleId, Command, Device, Screen, Side, Size, Tile},
+    combo::Combo,
     event::Effect,
     platform::{Desktop, Output},
 };
@@ -21,11 +21,11 @@ pub struct Dispatcher {
     displays: Displays,
 }
 
-/// Performs actions, posting input from a private event source; window actions act on `app`'s
+/// Performs actions, posting input from a private event source; window verbs act on `app`'s
 /// window, or without one on the focused window.
 pub struct Mac {
     source: Source,
-    app: Option<AppId>,
+    app: Option<BundleId>,
 }
 
 impl Dispatcher {
@@ -56,7 +56,7 @@ impl Output for Dispatcher {
 }
 
 /// Runs each action of `command`, logging those that fail.
-fn execute(command: &Command, app: Option<AppId>) {
+fn execute(command: &Command, app: Option<BundleId>) {
     let mac = match Source::new() {
         Ok(source) => Mac { source, app },
         Err(error) => return tracing::warn!(%error, "creating an event source"),
@@ -68,37 +68,69 @@ fn execute(command: &Command, app: Option<AppId>) {
     }
 }
 
+impl Mac {
+    fn window(&self) -> Result<Window, Error> {
+        Window::new(self.app.as_ref())
+    }
+}
+
 impl Desktop for Mac {
     type Error = Error;
 
-    fn keyboard(&self, action: &Keyboard) -> Result<(), Error> {
-        match action {
-            Keyboard::Press(combo) => self.source.press(*combo),
-            Keyboard::Type(text) => self.source.type_text(text),
-        }
+    fn press(&self, combo: Combo) -> Result<(), Error> {
+        self.source.press(combo)
     }
 
-    fn app(&self, action: &App) -> Result<(), Error> {
-        match action {
-            App::Focus(app) => app::focus(app),
-            App::Kill(app) => app::kill(app),
-        }
+    fn type_text(&self, text: &str) -> Result<(), Error> {
+        self.source.type_text(text)
     }
 
-    fn window(&self, action: &Window) -> Result<(), Error> {
-        window::perform(action, self.app.as_ref())
+    fn open(&self, app: &BundleId) -> Result<(), Error> {
+        app::open(app)
     }
 
-    fn bluetooth(&self, action: &Bluetooth) -> Result<(), Error> {
-        bluetooth::perform(action)
+    fn force_quit(&self, app: &BundleId) -> Result<(), Error> {
+        app::force_quit(app)
     }
 
-    fn media(&self, action: Media) -> Result<(), Error> {
-        SystemKey::from(action).press()
+    fn full_screen(&self) -> Result<(), Error> {
+        self.window()?.full_screen()
     }
 
-    fn display(&self, action: Display) -> Result<(), Error> {
-        SystemKey::from(action).press()
+    fn full_screen_tile(&self, side: Side) -> Result<(), Error> {
+        self.window()?.full_screen_tile(side)
+    }
+
+    fn tile(&self, tile: Tile) -> Result<(), Error> {
+        self.window()?.tile(tile)
+    }
+
+    fn fill(&self) -> Result<(), Error> {
+        self.window()?.fill()
+    }
+
+    fn center(&self) -> Result<(), Error> {
+        self.window()?.center()
+    }
+
+    fn move_to(&self, screen: &Screen) -> Result<(), Error> {
+        self.window()?.move_to(screen)
+    }
+
+    fn resize(&self, size: Size) -> Result<(), Error> {
+        self.window()?.resize(size)
+    }
+
+    fn connect(&self, device: &Device) -> Result<(), Error> {
+        bluetooth::set(device, Some(true))
+    }
+
+    fn disconnect(&self, device: &Device) -> Result<(), Error> {
+        bluetooth::set(device, Some(false))
+    }
+
+    fn toggle_connection(&self, device: &Device) -> Result<(), Error> {
+        bluetooth::set(device, None)
     }
 
     fn notify(&self, text: &str) -> Result<(), Error> {

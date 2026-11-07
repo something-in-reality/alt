@@ -21,6 +21,7 @@ rustPlatform.buildRustPackage {
       ./config.toml
       ./signing-identity
       ./src
+      ./tests
     ];
   };
   cargoLock.lockFile = ./Cargo.lock;

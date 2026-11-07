@@ -1,7 +1,7 @@
 //! Errors of the macOS platform.
 
 use crate::{
-    action::{AppId, Device, Screen},
+    action::{BundleId, Device, Screen},
     combo::Key,
 };
 
@@ -12,9 +12,9 @@ pub enum Error {
     #[error("the run loop ended")]
     RunLoopEnded,
     #[error("{0} is not running")]
-    NotRunning(AppId),
+    NotRunning(BundleId),
     #[error("{0} is not installed")]
-    NotInstalled(AppId),
+    NotInstalled(BundleId),
     #[error("{0} has no Mac key code")]
     Unmapped(Key),
     #[error("could not create {0}")]

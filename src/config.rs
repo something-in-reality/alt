@@ -1,71 +1,196 @@
-//! The configuration file, in sway's section names.
+//! The configuration file: `[shortcuts]`, `[mouse]`, `[displays]`, and a table for each application
+//! by bundle identifier.
 
 pub mod edit;
 pub mod watch;
 
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, HashMap},
-    fs, io,
+    fmt, fs, io,
     path::{Path, PathBuf},
     str::FromStr,
 };
 
-use schemars::{JsonSchema, Schema, generate::SchemaSettings};
-use serde::Deserialize;
-use serde_with::{MapPreventDuplicates, serde_as};
+use schemars::{JsonSchema, Schema, SchemaGenerator, generate::SchemaSettings, json_schema};
+use serde::{
+    Deserialize, Deserializer,
+    de::{self, IntoDeserializer, MapAccess},
+};
+use serde_untagged::UntaggedEnumVisitor;
+use serde_with::DeserializeFromStr;
 
 use crate::{
-    action::{AppId, Command},
+    action::{BundleId, Command},
     combo::Combo,
 };
 
-/// The configuration, `$XDG_CONFIG_HOME/alt/config.toml`.
-#[serde_as]
-#[derive(Debug, Default, Deserialize, JsonSchema)]
+/// `$XDG_CONFIG_HOME/alt/config.toml`: shortcuts and settings for every application, and a table per application by bundle identifier.
+#[derive(Debug, Default, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
-    /// Input devices.
-    pub input: Input,
-    /// Display settings.
-    pub display: Display,
-    /// Bindings in every application.
-    #[serde_as(deserialize_as = "MapPreventDuplicates<_, _>")]
-    pub bindsym: HashMap<Combo, Command>,
-    /// Bindings that apply while an application is in front, over those in `bindsym`.
-    pub app_id: BTreeMap<AppId, App>,
+    /// Shortcuts in every application.
+    pub shortcuts: Shortcuts,
+    /// System Settings > Mouse.
+    pub mouse: Mouse,
+    /// System Settings > Displays.
+    pub displays: Displays,
+    /// Applications by bundle identifier, which the schema describes as pattern properties.
+    #[serde(flatten)]
+    pub apps: BTreeMap<BundleId, App>,
+}
+
+impl<'de> Deserialize<'de> for Config {
+    /// Reads sections by name and applications by bundle identifier: section names have no dot,
+    /// and bundle identifiers always do.
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+
+        impl<'de> de::Visitor<'de> for Visitor {
+            type Value = Config;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("sections and applications' tables")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Config, A::Error> {
+                let mut config = Config::default();
+                while let Some(section) = map.next_key()? {
+                    match section {
+                        Section::Shortcuts => config.shortcuts = map.next_value()?,
+                        Section::Mouse => config.mouse = map.next_value()?,
+                        Section::Displays => config.displays = map.next_value()?,
+                        Section::App(app) => _ = config.apps.insert(app, map.next_value()?),
+                    }
+                }
+                Ok(config)
+            }
+        }
+
+        deserializer.deserialize_map(Visitor)
+    }
+}
+
+/// A root key: a section by name, or an application by bundle identifier.
+#[derive(DeserializeFromStr)]
+enum Section {
+    Shortcuts,
+    Mouse,
+    Displays,
+    App(BundleId),
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "unknown section `{0}`; expected shortcuts, mouse, displays, or a quoted bundle identifier such as [\"com.apple.Safari\"]"
+)]
+struct UnknownSection(String);
+
+impl FromStr for Section {
+    type Err = UnknownSection;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "shortcuts" => Ok(Self::Shortcuts),
+            "mouse" => Ok(Self::Mouse),
+            "displays" => Ok(Self::Displays),
+            other => other
+                .parse()
+                .map(Self::App)
+                .map_err(|_| UnknownSection(other.to_owned())),
+        }
+    }
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
-pub struct Input {
-    /// Mice.
-    pub pointer: Pointer,
+pub struct Mouse {
+    /// Natural scrolling for mouse wheels; trackpads and continuous scrolling follow System Settings. Unset follows System Settings.
+    pub natural_scrolling: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
-pub struct Pointer {
-    /// Scroll direction of mice; unset follows the system setting.
-    pub natural_scroll: Option<bool>,
-}
-
-#[derive(Debug, Default, Deserialize, JsonSchema)]
-#[serde(default, deny_unknown_fields)]
-#[schemars(rename = "DisplayConfig")]
-pub struct Display {
-    /// External displays follow the built-in display's brightness.
+pub struct Displays {
+    /// External displays follow the built-in display's brightness, over DDC/CI.
     pub sync_brightness: bool,
 }
 
-#[serde_as]
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
-#[schemars(rename = "AppConfig")]
 pub struct App {
-    #[serde_as(deserialize_as = "MapPreventDuplicates<_, _>")]
-    pub bindsym: HashMap<Combo, Command>,
-    /// Runs when the application launches.
+    /// Runs when the application launches or is running when alt starts; window actions act on its main window.
     pub on_launch: Option<Command>,
+    /// Shortcuts while the application is in front, over the global ones.
+    pub shortcuts: Shortcuts,
+}
+
+/// Bindings by shortcut. A shortcut has one spelling, so TOML's duplicate key error covers a
+/// repeated shortcut.
+#[derive(Debug, Default, Deserialize)]
+#[serde(transparent)]
+pub struct Shortcuts(HashMap<Combo, Binding>);
+
+impl Shortcuts {
+    pub fn get(&self, combo: &Combo) -> Option<&Binding> {
+        self.0.get(combo)
+    }
+}
+
+impl JsonSchema for Shortcuts {
+    fn schema_name() -> Cow<'static, str> {
+        "Shortcuts".into()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "description": "Bindings by shortcut.",
+            "type": "object",
+            "propertyNames": generator.subschema_for::<Combo>(),
+            "additionalProperties": generator.subschema_for::<Binding>()
+        })
+    }
+}
+
+/// A shortcut's value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Binding {
+    /// Runs the command and drops the key; `[]` runs nothing.
+    Run(Command),
+    /// Written `false`: the key reaches the application.
+    Unbound,
+}
+
+impl JsonSchema for Binding {
+    fn schema_name() -> Cow<'static, str> {
+        "Binding".into()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "description": "A command, which runs and drops the key, or false, which passes the key to the application.",
+            "anyOf": [
+                generator.subschema_for::<Command>(),
+                { "type": "boolean", "enum": [false] }
+            ]
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for Binding {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        const EXPECTED: &str = "an action, a list of actions, or false";
+        UntaggedEnumVisitor::new()
+            .expecting(EXPECTED)
+            .bool(|bound| match bound {
+                false => Ok(Self::Unbound),
+                true => Err(de::Error::custom(format_args!("expected {EXPECTED}"))),
+            })
+            .string(|verb| Command::deserialize(verb.into_deserializer()).map(Self::Run))
+            .map(|action| action.deserialize().map(Self::Run))
+            .seq(|actions| actions.deserialize().map(Self::Run))
+            .deserialize(deserializer)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -98,12 +223,17 @@ impl Config {
             .into_root_schema_for::<Self>()
     }
 
-    /// The command bound to `combo`, preferring the front application's binding.
-    pub fn bindsym(&self, front: Option<&AppId>, combo: &Combo) -> Option<&Command> {
+    /// The command that `combo` runs while `front` is in front: the application's binding, else
+    /// the global one; `None` passes the key.
+    pub fn shortcut(&self, front: Option<&BundleId>, combo: &Combo) -> Option<&Command> {
         front
-            .and_then(|app| self.app_id.get(app))
-            .and_then(|app| app.bindsym.get(combo))
-            .or_else(|| self.bindsym.get(combo))
+            .and_then(|app| self.apps.get(app))
+            .and_then(|app| app.shortcuts.get(combo))
+            .or_else(|| self.shortcuts.get(combo))
+            .and_then(|binding| match binding {
+                Binding::Run(command) => Some(command),
+                Binding::Unbound => None,
+            })
     }
 }
 
@@ -112,127 +242,5 @@ impl FromStr for Config {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         toml::from_str(s)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::action::{Action, Keyboard, Size, Window};
-
-    const EXAMPLE: &str = include_str!("../config.toml");
-
-    fn command(config: &Config, front: Option<&str>, combo: &str) -> Option<Vec<Action>> {
-        let front = front.map(AppId::from);
-        config
-            .bindsym(front.as_ref(), &combo.parse().unwrap())
-            .map(|command| command.as_ref().to_vec())
-    }
-
-    fn validates(toml: &str) -> bool {
-        let schema = Config::schema().to_value();
-        let instance: serde_json::Value = toml::from_str(toml).unwrap();
-        jsonschema::validator_for(&schema)
-            .unwrap()
-            .is_valid(&instance)
-    }
-
-    #[test]
-    fn example_matches_the_schema() {
-        assert!(validates(EXAMPLE));
-        let schema = Config::schema().to_value();
-        assert_eq!(schema["$schema"], "http://json-schema.org/draft-07/schema#");
-        for section in ["input", "display", "bindsym", "app_id"] {
-            assert!(schema["properties"][section].is_object(), "{section}");
-        }
-    }
-
-    #[test]
-    fn schema_rejects_what_the_parser_rejects() {
-        for invalid in [
-            "[input.pointer]\nnatural = true",
-            "[bindsym]\nf1 = \"media.louder\"",
-            "[bindsym]\nf1 = { window.tile = \"middle\" }",
-            "[bindsym]\nf1 = { window.resize = { depth = 1 } }",
-            "[bindsym]\n\"hyper+a\" = \"media.mute\"",
-            "[app_id.\"com.apple.Music\"]\non_launch = 1",
-        ] {
-            assert!(invalid.parse::<Config>().is_err(), "{invalid}");
-            assert!(!validates(invalid), "{invalid}");
-        }
-        for valid in [
-            "[bindsym]\nf1 = []",
-            "[bindsym]\nf1 = [\"window.fill\", { window.display = \"Studio Display\" }]",
-            "[bindsym]\nf1 = { media = \"mute\" }",
-        ] {
-            assert!(valid.parse::<Config>().is_ok(), "{valid}");
-            assert!(validates(valid), "{valid}");
-        }
-    }
-
-    #[test]
-    fn example_parses() {
-        let config: Config = EXAMPLE.parse().unwrap();
-        assert_eq!(config.input.pointer.natural_scroll, Some(false));
-        assert!(config.display.sync_brightness);
-        assert_eq!(
-            command(&config, None, "ctrl+alt+enter"),
-            Some(vec![Action::Window(Window::Fill)])
-        );
-    }
-
-    #[test]
-    fn front_application_bindings_win() {
-        let config: Config = EXAMPLE.parse().unwrap();
-        let width = |width| vec![Action::Window(Window::Resize(Size { width, height: 0 }))];
-        let (grow, shrink) = (width(100), width(-100));
-        assert_eq!(command(&config, None, "super+home"), Some(grow.clone()));
-        assert_eq!(
-            command(&config, Some("com.mitchellh.ghostty"), "super+home"),
-            Some(grow)
-        );
-        assert_eq!(
-            command(&config, Some("org.nixos.firefox"), "super+home"),
-            Some(shrink)
-        );
-    }
-
-    #[test]
-    fn application_bindings_stay_in_their_application() {
-        let config: Config = EXAMPLE.parse().unwrap();
-        assert_eq!(command(&config, None, "page_up"), None);
-        assert_eq!(
-            command(&config, Some("org.nixos.firefox"), "backquote"),
-            Some(vec![Action::Keyboard(Keyboard::Press(
-                "ctrl+z".parse().unwrap()
-            ))])
-        );
-    }
-
-    #[test]
-    fn sequences_run_in_order() {
-        let config: Config =
-            "[bindsym]\nf1 = [{ keyboard.press = \"super+l\" }, { keyboard.type = \"x\" }]"
-                .parse()
-                .unwrap();
-        assert_eq!(
-            command(&config, None, "f1"),
-            Some(vec![
-                Action::Keyboard(Keyboard::Press("super+l".parse().unwrap())),
-                Action::Keyboard(Keyboard::Type("x".to_owned())),
-            ])
-        );
-    }
-
-    #[test]
-    fn rejects_one_combo_bound_twice() {
-        let config =
-            "[bindsym]\n\"ctrl+shift+tab\" = \"media.mute\"\n\"shift+ctrl+tab\" = \"media.mute\"";
-        assert!(config.parse::<Config>().is_err());
-    }
-
-    #[test]
-    fn rejects_unknown_fields() {
-        assert!("[input.pointer]\nnatural = true".parse::<Config>().is_err());
     }
 }

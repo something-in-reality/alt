@@ -1,76 +1,53 @@
-//! Actions, namespaced by what they act on: `keyboard.press`, `window.resize`, `media.mute`.
-//!
-//! An action is written `"namespace.verb"` when the verb takes nothing, and
-//! `{ namespace.verb = argument }` when it does.
+//! Actions: a verb written `"fill"`, or `{ tile = "left" }` when the verb takes an argument. A
+//! command is one action or a list of actions that run in order.
 
-use std::{borrow::Cow, fmt, io, iter, process, str::FromStr, sync::Arc, thread};
+use std::{borrow::Cow, io, process, str::FromStr, sync::Arc, thread};
 
 use derive_more::{AsRef, Display, From};
 use jiff::{Timestamp, Zoned, tz::TimeZone};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
-use serde::{
-    Deserialize, Deserializer,
-    de::{self, IntoDeserializer},
-};
-
-use serde_json::Value;
+use serde::{Deserialize, Deserializer, de::IntoDeserializer};
+use serde_untagged::UntaggedEnumVisitor;
 use serde_with::DeserializeFromStr;
 
 use crate::{combo::Combo, platform::Desktop};
 
+/// An action: a verb, or `{ verb = argument }`.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
-#[schemars(rename = "ActionTable")]
+#[serde(rename_all = "snake_case")]
 pub enum Action {
+    /// Presses a combination as a keyboard does; media and brightness keys post the system key.
+    Press(Combo),
+    /// Types text.
+    Type(String),
+    /// Opens an application: launches it, or brings it to the front.
+    Open(BundleId),
+    /// Force-quits a running application.
+    ForceQuit(BundleId),
+    /// Window > Enter Full Screen.
+    FullScreen,
+    /// Window > Full Screen Tile: puts the window in one half of a full-screen split.
+    FullScreenTile(Side),
+    /// Window > Move & Resize: moves and resizes the window to a half or quarter of its display.
+    Tile(Tile),
+    /// Window > Fill: fills the window's display.
+    Fill,
+    /// Window > Center: centres the window on its display.
+    Center,
+    /// Window > Move to: moves the window to a display.
+    MoveTo(Screen),
+    /// Changes the window's size by a signed amount in points; in split view, moves the divider.
+    Resize(Size),
+    /// Connects a paired Bluetooth device.
+    Connect(Device),
+    /// Disconnects a paired Bluetooth device.
+    Disconnect(Device),
+    /// Connects a paired Bluetooth device when disconnected, otherwise disconnects it.
+    ToggleConnection(Device),
     /// Runs a command with `sh -c`.
     Exec(String),
     /// Shows a notification of a `strftime` template filled with the local time.
     Notify(Template),
-    Keyboard(Keyboard),
-    App(App),
-    Window(Window),
-    Bluetooth(Bluetooth),
-    Media(Media),
-    Display(Display),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
-pub enum Keyboard {
-    Press(Combo),
-    Type(String),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
-pub enum App {
-    /// Brings an application to the front, launching it when it is not running.
-    Focus(AppId),
-    /// Force-quits a running application.
-    Kill(AppId),
-}
-
-/// Acts on the focused window, or in an application's `on_launch` command, on its window. Tiling,
-/// filling, centring and display moves press items of the application's Window menu.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
-pub enum Window {
-    /// Changes the window's size; in split view this moves the divider.
-    Resize(Size),
-    /// Puts the window in full screen; a window in full screen stays there.
-    Fullscreen,
-    /// Puts the window in one half of a full-screen split, through the application's Window menu;
-    /// macOS then offers the other windows for the other half.
-    FullscreenTile(Side),
-    /// Moves and resizes the window to a half or quarter of its display, through Window > Move &
-    /// Resize.
-    Tile(Tile),
-    /// Fills the window's display, through Window > Fill.
-    Fill,
-    /// Centres the window on its display, through Window > Center.
-    Center,
-    /// Moves the window to a display, through Window > Move to.
-    Display(Screen),
 }
 
 /// A half of a display.
@@ -96,12 +73,12 @@ pub enum Tile {
     BottomRight,
 }
 
-/// A display of the Window menu's "Move to" items: `builtin`; `next`, the first of them;
+/// A display of the Window menu's "Move to" items: `built_in`; `next`, the first of them;
 /// `previous`, the last; or a display's name.
 #[derive(Clone, Debug, PartialEq, Eq, DeserializeFromStr, strum::Display, strum::EnumString)]
-#[strum(serialize_all = "lowercase")]
+#[strum(serialize_all = "snake_case")]
 pub enum Screen {
-    Builtin,
+    BuiltIn,
     Next,
     Previous,
     #[strum(default)]
@@ -115,9 +92,9 @@ impl JsonSchema for Screen {
 
     fn json_schema(_: &mut SchemaGenerator) -> Schema {
         json_schema!({
-            "description": "A display of the Window menu's \"Move to\" items: `builtin`, `next` (the first), `previous` (the last), or a display's name.",
+            "description": "A display of the Window menu's \"Move to\" items: `built_in`, `next` (the first), `previous` (the last), or a display's name.",
             "anyOf": [
-                { "enum": ["builtin", "next", "previous"] },
+                { "enum": ["built_in", "next", "previous"] },
                 { "type": "string" }
             ]
         })
@@ -132,56 +109,55 @@ pub struct Size {
     pub height: i32,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
-pub enum Bluetooth {
-    Connect(Device),
-    Disconnect(Device),
-    Toggle(Device),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Media {
-    Mute,
-    VolumeUp,
-    VolumeDown,
-    PlayPause,
-    Next,
-    Previous,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Display {
-    /// Steps the built-in display's brightness; external displays follow when synced.
-    BrightnessUp,
-    BrightnessDown,
-}
-
-/// An application: its bundle identifier on macOS, its `app_id` under Wayland.
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Deserialize,
-    JsonSchema,
-    From,
-    AsRef,
-    Display,
-)]
-#[serde(transparent)]
-#[from(forward)]
-pub struct AppId(#[as_ref(str)] Arc<str>);
-
 /// A paired Bluetooth device, by name or address.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema, AsRef, Display)]
 #[serde(transparent)]
 pub struct Device(#[as_ref(str)] String);
+
+/// An application's bundle identifier, in reverse-DNS form: `org.mozilla.firefox`.
+#[derive(
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, DeserializeFromStr, AsRef, Display,
+)]
+pub struct BundleId(#[as_ref(str)] Arc<str>);
+
+/// The text of a malformed bundle identifier.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[error("expected a bundle identifier such as org.mozilla.firefox")]
+pub struct ParseBundleIdError;
+
+impl FromStr for BundleId {
+    type Err = ParseBundleIdError;
+
+    /// Accepts two or more dot-separated parts of letters, digits and `-`.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let part = |part: &str| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        };
+        if s.contains('.') && s.split('.').all(part) {
+            Ok(Self(s.into()))
+        } else {
+            Err(ParseBundleIdError)
+        }
+    }
+}
+
+impl JsonSchema for BundleId {
+    fn schema_name() -> Cow<'static, str> {
+        "BundleId".into()
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "type": "string",
+            "description": "An application's bundle identifier, in reverse-DNS form.",
+            "pattern": r"^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$",
+            "examples": ["org.mozilla.firefox", "com.apple.Safari"]
+        })
+    }
+}
 
 /// A `strftime` template, such as `%H:%M`; text without fields shows as written.
 #[derive(Clone, Debug, PartialEq, Eq, DeserializeFromStr, JsonSchema, AsRef)]
@@ -206,10 +182,24 @@ impl FromStr for Template {
 }
 
 impl Action {
-    /// Performs the action: `exec` here, every other namespace on `desktop`, to which `notify`
-    /// passes its filled template.
+    /// Performs the action: `exec` here, every other verb on `desktop`, to which `notify` passes
+    /// its filled template.
     pub fn perform<D: Desktop>(&self, desktop: &D) -> Result<(), D::Error> {
         match self {
+            Self::Press(combo) => desktop.press(*combo),
+            Self::Type(text) => desktop.type_text(text),
+            Self::Open(app) => desktop.open(app),
+            Self::ForceQuit(app) => desktop.force_quit(app),
+            Self::FullScreen => desktop.full_screen(),
+            Self::FullScreenTile(side) => desktop.full_screen_tile(*side),
+            Self::Tile(tile) => desktop.tile(*tile),
+            Self::Fill => desktop.fill(),
+            Self::Center => desktop.center(),
+            Self::MoveTo(screen) => desktop.move_to(screen),
+            Self::Resize(size) => desktop.resize(*size),
+            Self::Connect(device) => desktop.connect(device),
+            Self::Disconnect(device) => desktop.disconnect(device),
+            Self::ToggleConnection(device) => desktop.toggle_connection(device),
             Self::Exec(command) => {
                 let mut child = process::Command::new("/bin/sh")
                     .args(["-c", command])
@@ -220,26 +210,18 @@ impl Action {
             Self::Notify(template) => {
                 desktop.notify(&template.format(&Zoned::now()).map_err(io::Error::other)?)
             }
-            Self::Keyboard(action) => desktop.keyboard(action),
-            Self::App(action) => desktop.app(action),
-            Self::Window(action) => desktop.window(action),
-            Self::Bluetooth(action) => desktop.bluetooth(action),
-            Self::Media(action) => desktop.media(*action),
-            Self::Display(action) => desktop.display(*action),
         }
     }
 
     /// Whether a key's autorepeat reruns the action.
     pub fn repeats(&self) -> bool {
-        matches!(
-            self,
-            Self::Keyboard(_) | Self::Window(Window::Resize(_)) | Self::Media(_) | Self::Display(_)
-        )
+        matches!(self, Self::Press(_) | Self::Type(_) | Self::Resize(_))
     }
 }
 
 /// One action or a sequence, run in order; cloning shares the actions.
-#[derive(Clone, Debug, PartialEq, Eq, AsRef)]
+#[derive(Clone, Debug, PartialEq, Eq, AsRef, From)]
+#[from(forward)]
 pub struct Command(#[as_ref([Action])] Arc<[Action]>);
 
 impl Command {
@@ -258,101 +240,15 @@ impl<'a> IntoIterator for &'a Command {
     }
 }
 
-/// The string constants that `schema` accepts, following references into `root`.
-fn constants<'a>(root: &'a Value, schema: &'a Value) -> Vec<&'a str> {
-    let schema = schema["$ref"]
-        .as_str()
-        .and_then(|reference| root.pointer(reference.trim_start_matches('#')))
-        .unwrap_or(schema);
-    let own = schema["const"].as_str().into_iter().chain(
-        schema["enum"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str),
-    );
-    let nested = schema["oneOf"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .flat_map(|variant| constants(root, variant));
-    own.chain(nested).collect()
-}
-
-/// The actions that read as a `"namespace.verb"` string: the unit variants of the namespaces,
-/// named as `Action`'s schema names them.
-fn verbs() -> Vec<String> {
-    let root = schemars::schema_for!(Action).to_value();
-    root["oneOf"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .flat_map(|variant| variant["properties"].as_object().into_iter().flatten())
-        .flat_map(|(namespace, schema)| {
-            constants(&root, schema)
-                .into_iter()
-                .map(move |verb| format!("{namespace}.{verb}"))
-        })
-        .collect()
-}
-
-/// One action, written `"namespace.verb"` or as a table; the string reads as
-/// `{ namespace = "verb" }`.
-struct Step(Action);
-
-impl JsonSchema for Step {
-    fn schema_name() -> Cow<'static, str> {
-        "Action".into()
-    }
-
-    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
-        json_schema!({
-            "description": "An action: \"namespace.verb\" when the verb takes no argument, or { namespace.verb = argument }.",
-            "anyOf": [
-                { "type": "string", "enum": verbs() },
-                generator.subschema_for::<Action>()
-            ]
-        })
-    }
-}
-
-impl<'de> Deserialize<'de> for Step {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct Visitor;
-
-        impl<'de> de::Visitor<'de> for Visitor {
-            type Value = Step;
-
-            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str("`namespace.verb` or { namespace.verb = argument }")
-            }
-
-            fn visit_str<E: de::Error>(self, s: &str) -> Result<Step, E> {
-                let (namespace, verb) = s
-                    .split_once('.')
-                    .ok_or_else(|| E::custom(format!("expected `namespace.verb`, found `{s}`")))?;
-                let entry = de::value::MapDeserializer::new(iter::once((namespace, verb)));
-                Action::deserialize(de::value::MapAccessDeserializer::new(entry)).map(Step)
-            }
-
-            fn visit_map<A: de::MapAccess<'de>>(self, map: A) -> Result<Step, A::Error> {
-                Action::deserialize(de::value::MapAccessDeserializer::new(map)).map(Step)
-            }
-        }
-
-        deserializer.deserialize_any(Visitor)
-    }
-}
-
 impl JsonSchema for Command {
     fn schema_name() -> Cow<'static, str> {
         "Command".into()
     }
 
     fn json_schema(generator: &mut SchemaGenerator) -> Schema {
-        let action = generator.subschema_for::<Step>();
+        let action = generator.subschema_for::<Action>();
         json_schema!({
-            "description": "One action, or a list of actions run in order.",
+            "description": "An action, or a list of actions run in order.",
             "anyOf": [
                 action,
                 { "type": "array", "items": action }
@@ -362,34 +258,13 @@ impl JsonSchema for Command {
 }
 
 impl<'de> Deserialize<'de> for Command {
-    /// Reads one action or a list of actions, with each error at the field it comes from.
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct Visitor;
-
-        impl<'de> de::Visitor<'de> for Visitor {
-            type Value = Command;
-
-            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str("an action or a list of actions")
-            }
-
-            fn visit_str<E: de::Error>(self, s: &str) -> Result<Command, E> {
-                Step::deserialize(s.into_deserializer())
-                    .map(|Step(action)| Command(Arc::new([action])))
-            }
-
-            fn visit_map<A: de::MapAccess<'de>>(self, map: A) -> Result<Command, A::Error> {
-                Step::deserialize(de::value::MapAccessDeserializer::new(map))
-                    .map(|Step(action)| Command(Arc::new([action])))
-            }
-
-            fn visit_seq<A: de::SeqAccess<'de>>(self, seq: A) -> Result<Command, A::Error> {
-                Vec::<Step>::deserialize(de::value::SeqAccessDeserializer::new(seq))
-                    .map(|steps| Command(steps.into_iter().map(|Step(action)| action).collect()))
-            }
-        }
-
-        deserializer.deserialize_any(Visitor)
+        UntaggedEnumVisitor::new()
+            .expecting("an action or a list of actions")
+            .string(|verb| Action::deserialize(verb.into_deserializer()).map(|a| Self::from([a])))
+            .map(|action| action.deserialize::<Action>().map(|a| Self::from([a])))
+            .seq(|actions| actions.deserialize::<Vec<Action>>().map(Self::from))
+            .deserialize(deserializer)
     }
 }
 
@@ -406,81 +281,72 @@ mod tests {
             .map(|wrapper| wrapper.command.as_ref().to_vec())
     }
 
+    fn error(toml: &str) -> String {
+        command(toml).unwrap_err().message().to_owned()
+    }
+
     #[test]
     fn verbs_read_as_strings_or_tables() {
+        assert_eq!(command(r#""fill""#).unwrap(), [Action::Fill]);
         assert_eq!(
-            command(r#""media.mute""#).unwrap(),
-            [Action::Media(Media::Mute)]
-        );
-        assert_eq!(
-            command("{ window.resize = { width = -100 } }").unwrap(),
-            [Action::Window(Window::Resize(Size {
+            command("{ resize = { width = -100 } }").unwrap(),
+            [Action::Resize(Size {
                 width: -100,
                 height: 0
-            }))]
+            })]
         );
         assert_eq!(
-            command(r#"["display.brightness_up", { keyboard.type = "✓" }]"#).unwrap(),
-            [
-                Action::Display(Display::BrightnessUp),
-                Action::Keyboard(Keyboard::Type("✓".to_owned()))
-            ]
+            command(r#"["full_screen", { type = "✓" }]"#).unwrap(),
+            [Action::FullScreen, Action::Type("✓".to_owned())]
         );
+        assert_eq!(command("[]").unwrap(), []);
     }
 
     #[test]
-    fn argumentless_verbs_read_as_strings() {
-        let verbs = verbs();
-        for verb in &verbs {
-            assert!(command(&format!("{verb:?}")).is_ok(), "{verb}");
-        }
-        for verb in [
-            "window.fullscreen",
-            "media.volume_up",
-            "display.brightness_down",
-        ] {
-            assert!(verbs.iter().any(|v| v == verb), "{verb}");
-        }
-        assert!(
-            !verbs
-                .iter()
-                .any(|v| v == "window.resize" || v.starts_with("exec"))
-        );
-    }
-
-    #[test]
-    fn window_actions_read_their_targets() {
+    fn arguments_read_their_targets() {
         assert_eq!(
-            command(r#"["window.fullscreen", { window.fullscreen_tile = "right" }, { window.tile = "left" }, { window.tile = "bottom_right" }, "window.fill", "window.center", { window.display = "MSI MP341CQ" }]"#)
+            command(r#"[{ full_screen_tile = "right" }, { tile = "left" }, { tile = "bottom_right" }, "center", { move_to = "MSI MP341CQ" }, { move_to = "built_in" }]"#)
                 .unwrap(),
             [
-                Action::Window(Window::Fullscreen),
-                Action::Window(Window::FullscreenTile(Side::Right)),
-                Action::Window(Window::Tile(Tile::Left)),
-                Action::Window(Window::Tile(Tile::BottomRight)),
-                Action::Window(Window::Fill),
-                Action::Window(Window::Center),
-                Action::Window(Window::Display(Screen::Named("MSI MP341CQ".to_owned()))),
+                Action::FullScreenTile(Side::Right),
+                Action::Tile(Tile::Left),
+                Action::Tile(Tile::BottomRight),
+                Action::Center,
+                Action::MoveTo(Screen::Named("MSI MP341CQ".to_owned())),
+                Action::MoveTo(Screen::BuiltIn),
             ]
         );
         assert_eq!(
-            command(r#"{ window.display = "builtin" }"#).unwrap(),
-            [Action::Window(Window::Display(Screen::Builtin))]
-        );
-        assert!(!Action::Window(Window::Tile(Tile::Right)).repeats());
-        assert_eq!(
-            command(r#"{ notify = "%H:%M" }"#).unwrap(),
-            [Action::Notify("%H:%M".parse().unwrap())]
+            command(r#"[{ press = "ctrl-shift-tab" }, { open = "org.mozilla.firefox" }, { force_quit = "com.apple.Music" }, { toggle_connection = "f8-8f-07-40-54-34" }]"#)
+                .unwrap()
+                .len(),
+            4
         );
         assert_eq!(Tile::TopLeft.to_string(), "Top Left");
         assert_eq!(Tile::Bottom.to_string(), "Bottom");
-        for screen in ["builtin", "next", "MSI MP341CQ"] {
+        for screen in ["built_in", "next", "MSI MP341CQ"] {
             assert_eq!(screen.parse::<Screen>().unwrap().to_string(), screen);
         }
     }
 
     #[test]
+    fn only_incremental_actions_repeat() {
+        let repeats = |toml| command(toml).unwrap().iter().all(Action::repeats);
+        assert!(repeats(r#"{ press = "a" }"#));
+        assert!(repeats(r#"{ type = "a" }"#));
+        assert!(repeats("{ resize = { width = 1 } }"));
+        assert!(!repeats(r#"{ tile = "right" }"#));
+        assert!(!repeats(r#"{ open = "org.mozilla.firefox" }"#));
+        assert!(Command::from([Action::Press("a".parse().unwrap())]).repeats());
+        assert!(!Command::from([Action::Press("a".parse().unwrap()), Action::Fill]).repeats());
+    }
+
+    #[test]
     fn notify_templates_are_checked_when_parsed() {
+        assert_eq!(
+            command(r#"{ notify = "%H:%M" }"#).unwrap(),
+            [Action::Notify("%H:%M".parse().unwrap())]
+        );
         for valid in ["%H:%M · %a %-d %b", "%Z %z", "no fields", ""] {
             assert!(
                 command(&format!("{{ notify = {valid:?} }}")).is_ok(),
@@ -488,15 +354,82 @@ mod tests {
             );
         }
         for invalid in ["%", "100%", "%H:%", "%!", "%-"] {
-            let error = command(&format!("{{ notify = {invalid:?} }}")).unwrap_err();
-            assert!(error.to_string().contains("strftime"), "{invalid}: {error}");
+            let message = error(&format!("{{ notify = {invalid:?} }}"));
+            assert!(message.contains("strftime"), "{invalid}: {message}");
         }
     }
 
     #[test]
     fn errors_name_the_problem() {
-        let error = command(r#""media.louder""#).unwrap_err().to_string();
-        assert!(error.contains("louder"), "{error}");
-        assert!(command("{ window.resize = { depth = 100 } }").is_err());
+        assert!(
+            error(r#""louder""#)
+                .contains("unknown variant `louder`, expected one of `press`, `type`, `open`")
+        );
+        assert!(error(r#"{ tlie = "left" }"#).contains("unknown variant `tlie`"));
+        assert!(
+            error(r#"{ tile = "middle" }"#)
+                .contains("unknown variant `middle`, expected one of `left`")
+        );
+        assert!(
+            error(r#"{ open = "Firefox" }"#)
+                .contains("expected a bundle identifier such as org.mozilla.firefox")
+        );
+        assert!(error("{ resize = { depth = 100 } }").contains("unknown field `depth`"));
+        assert!(error("1").contains("expected an action or a list of actions"));
+        assert!(error(r#""tile""#).contains("expected newtype variant"));
+        assert!(error(r#"{ fill = "left" }"#).contains("expected unit"));
+    }
+
+    #[test]
+    fn bundle_identifiers_are_reverse_dns() {
+        for valid in [
+            "org.mozilla.firefox",
+            "com.apple.Safari",
+            "a.b",
+            "my-org.app-1",
+        ] {
+            assert!(valid.parse::<BundleId>().is_ok(), "{valid}");
+        }
+        for invalid in [
+            "",
+            "Firefox",
+            "org",
+            ".org.app",
+            "org..app",
+            "org.app.",
+            "org.app!",
+            "org. app",
+            "org.mozilla.fire_fox",
+        ] {
+            assert!(invalid.parse::<BundleId>().is_err(), "{invalid:?}");
+        }
+    }
+
+    #[test]
+    fn bundle_identifiers_agree_with_the_schema() {
+        let schema = BundleId::json_schema(&mut SchemaGenerator::default()).to_value();
+        let validator = jsonschema::validator_for(&schema).unwrap();
+        for s in [
+            "org.mozilla.firefox",
+            "com.apple.Safari",
+            "a.b",
+            "my-org.app-1",
+            "",
+            "Firefox",
+            "org",
+            ".org.app",
+            "org..app",
+            "org.app.",
+            "org.app!",
+            "org. app",
+            "org.fire_fox",
+            "org.app\n",
+        ] {
+            assert_eq!(
+                s.parse::<BundleId>().is_ok(),
+                validator.is_valid(&s.into()),
+                "{s:?}"
+            );
+        }
     }
 }

@@ -1,51 +1,58 @@
 #:schema /run/current-system/sw/share/alt/config.schema.json
 # Example configuration; ~/.config/alt/config.toml. The first line makes taplo, and so helix,
 # validate and complete this file against `alt schema`.
-# Keys are W3C KeyboardEvent.code names in snake_case, letters and digits by character; modifiers
-# are ctrl, alt, shift and super. An action is "namespace.verb", or { namespace.verb = argument }.
+# A shortcut is modifiers (ctrl, alt, shift, cmd, in that order) and a key, joined by `-`; keys are
+# W3C KeyboardEvent.code names in snake_case, letters and digits by character. An action is a verb,
+# or { verb = argument }; a list runs in order. An application's table, by bundle identifier,
+# applies while the application is in front.
 
-[input.pointer]
-natural_scroll = false
+[mouse]
+natural_scrolling = false
 
-[display]
+[displays]
 sync_brightness = true
 
-[bindsym]
-f1 = { keyboard.press = "dictation" }
+[shortcuts]
+f1 = { press = "dictation" }
 f4 = { exec = "open -a 'Mission Control'" }
-f6 = "media.mute"
-f7 = "media.volume_down"
-f8 = "media.volume_up"
-f9 = "display.brightness_down"
-f10 = "display.brightness_up"
-"ctrl+t" = { keyboard.type = "✓" }
-home = { app.focus = "org.nixos.firefox" }
-end = { app.focus = "com.mitchellh.ghostty" }
-"alt+b" = { bluetooth.toggle = "f8-8f-07-40-54-34" }
-"super+home" = { window.resize = { width = 100 } }
-"super+end" = { window.resize = { width = -100 } }
-"ctrl+alt+arrow_left" = { window.tile = "left" }
-"ctrl+alt+arrow_right" = { window.tile = "right" }
-"ctrl+alt+arrow_up" = "window.fullscreen"
-"ctrl+alt+arrow_down" = { window.display = "next" }
-"ctrl+alt+shift+arrow_left" = { window.tile = "top_left" }
-"ctrl+alt+shift+arrow_right" = { window.tile = "bottom_right" }
-"ctrl+alt+enter" = "window.fill"
-"ctrl+alt+c" = "window.center"
+f6 = { press = "audio_volume_mute" }
+f7 = { press = "audio_volume_down" }
+f8 = { press = "audio_volume_up" }
+f9 = { press = "brightness_down" }
+f10 = { press = "brightness_up" }
+ctrl-t = { type = "✓" }
+home = { open = "org.mozilla.firefox" }
+end = { open = "com.mitchellh.ghostty" }
+alt-b = { toggle_connection = "f8-8f-07-40-54-34" }
+cmd-home = { resize = { width = 100 } }
+cmd-end = { resize = { width = -100 } }
+ctrl-alt-arrow_left = { tile = "left" }
+ctrl-alt-arrow_right = { tile = "right" }
+ctrl-alt-arrow_up = "full_screen"
+ctrl-alt-arrow_down = { move_to = "next" }
+ctrl-alt-shift-arrow_left = { tile = "top_left" }
+ctrl-alt-shift-arrow_right = { tile = "bottom_right" }
+ctrl-alt-enter = "fill"
+ctrl-alt-c = "center"
+# The time, as a notification.
+# <key> = { notify = "%H:%M · %a %-d %b" }
 
-[app_id."org.nixos.firefox"]
-on_launch = "window.fullscreen"
+# Cmd-H hides the front application; an empty list drops the key.
+cmd-h = []
 
-[app_id."org.nixos.firefox".bindsym]
-page_up = { keyboard.press = "ctrl+shift+tab" }
-page_down = { keyboard.press = "ctrl+tab" }
-backquote = { keyboard.press = "ctrl+z" }
-"ctrl+backquote" = { keyboard.press = "ctrl+z" }
-"super+home" = { window.resize = { width = -100 } }
-"super+end" = { window.resize = { width = 100 } }
+["org.mozilla.firefox"]
+on_launch = "full_screen"
+shortcuts.page_up = { press = "ctrl-shift-tab" }
+shortcuts.page_down = { press = "ctrl-tab" }
+shortcuts.backquote = { press = "ctrl-z" }
+shortcuts.ctrl-backquote = { press = "ctrl-z" }
+shortcuts.cmd-home = { resize = { width = -100 } }
+shortcuts.cmd-end = { resize = { width = 100 } }
 
-[app_id."com.apple.Music"]
-on_launch = { app.kill = "com.apple.Music" }
+["com.apple.Music"]
+on_launch = { force_quit = "com.apple.Music" }
 
-[app_id."com.mitchellh.ghostty"]
-on_launch = "window.fullscreen"
+["com.mitchellh.ghostty"]
+on_launch = "full_screen"
+# Cmd-H reaches Ghostty, which moves to the split on the left.
+shortcuts.cmd-h = false

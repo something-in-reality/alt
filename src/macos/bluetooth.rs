@@ -4,14 +4,10 @@ use objc2::rc::Retained;
 use objc2_io_bluetooth::IOBluetoothDevice;
 
 use super::Error;
-use crate::action::{Bluetooth, Device};
+use crate::action::Device;
 
-pub fn perform(action: &Bluetooth) -> Result<(), Error> {
-    let (device, connect) = match action {
-        Bluetooth::Connect(device) => (device, Some(true)),
-        Bluetooth::Disconnect(device) => (device, Some(false)),
-        Bluetooth::Toggle(device) => (device, None),
-    };
+/// Connects or disconnects the paired `device`: `connect` of `None` toggles.
+pub fn set(device: &Device, connect: Option<bool>) -> Result<(), Error> {
     let paired = paired(device)?;
     let connect = connect.unwrap_or_else(|| !unsafe { paired.isConnected() });
     let status = unsafe {

@@ -7,10 +7,7 @@ use objc2_core_foundation::CGPoint;
 use objc2_core_graphics::{CGEvent, CGEventTapLocation, CGEventType};
 
 use super::Error;
-use crate::{
-    action::{Display, Media},
-    combo::Key,
-};
+use crate::combo::Key;
 
 /// NX_SYSDEFINED, the event type of system keys.
 pub const SYSTEM_DEFINED: CGEventType = CGEventType(14);
@@ -93,28 +90,6 @@ impl TryFrom<Key> for SystemKey {
             Key::Code(KeyMappingCode::BrightnessUp) => Ok(Self::BrightnessUp),
             Key::Code(KeyMappingCode::BrightnessDown) => Ok(Self::BrightnessDown),
             key => Err(key),
-        }
-    }
-}
-
-impl From<Media> for SystemKey {
-    fn from(media: Media) -> Self {
-        match media {
-            Media::Mute => Self::Mute,
-            Media::VolumeUp => Self::VolumeUp,
-            Media::VolumeDown => Self::VolumeDown,
-            Media::PlayPause => Self::PlayPause,
-            Media::Next => Self::Next,
-            Media::Previous => Self::Previous,
-        }
-    }
-}
-
-impl From<Display> for SystemKey {
-    fn from(display: Display) -> Self {
-        match display {
-            Display::BrightnessUp => Self::BrightnessUp,
-            Display::BrightnessDown => Self::BrightnessDown,
         }
     }
 }

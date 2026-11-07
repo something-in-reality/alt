@@ -1,6 +1,6 @@
-//! Key combinations: modifiers and a physical key, written `ctrl+shift+tab`, in lower case. Keys
-//! are W3C `KeyboardEvent.code`s in snake_case, letters and digits by their character: `b`, `1`,
-//! `page_up`, `f3`, `backquote`.
+//! Key combinations: modifiers and a physical key joined by `-` in lower case, with the modifiers
+//! in Apple's order: `ctrl-alt-shift-cmd-key`. Keys are W3C `KeyboardEvent.code`s in snake_case,
+//! letters and digits by their character: `b`, `1`, `page_up`, `f3`, `backquote`.
 
 use std::{borrow::Cow, fmt, str::FromStr};
 
@@ -10,13 +10,13 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde_with::DeserializeFromStr;
 
 bitflags! {
-    /// Modifier keys, named as in sway.
+    /// Modifier keys, in Apple's order: Control, Option, Shift, Command.
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct Modifiers: u8 {
         const CTRL = 1;
         const ALT = 1 << 1;
         const SHIFT = 1 << 2;
-        const SUPER = 1 << 3;
+        const CMD = 1 << 3;
     }
 }
 
@@ -35,6 +35,9 @@ pub struct Combo {
     pub key: Key,
 }
 
+/// The modifiers of a combination's pattern, each at most once and in order.
+const MODIFIERS_PATTERN: &str = "(ctrl-)?(alt-)?(shift-)?(cmd-)?";
+
 impl JsonSchema for Combo {
     fn schema_name() -> Cow<'static, str> {
         "Combo".into()
@@ -43,21 +46,23 @@ impl JsonSchema for Combo {
     fn json_schema(_: &mut SchemaGenerator) -> Schema {
         json_schema!({
             "type": "string",
-            "description": "Modifiers (ctrl, alt, shift, super) and a key, joined by `+`. Keys are W3C KeyboardEvent.code names in snake case, letters and digits by character: b, 1, page_up, f3, backquote.",
-            "pattern": r"^((ctrl|alt|shift|super)\+)*[a-z0-9_]+$",
-            "examples": ["f6", "super+home", "ctrl+shift+tab"]
+            "description": "Modifiers (ctrl, alt, shift, cmd, in that order) and a key, joined by `-`. Keys are W3C KeyboardEvent.code names in snake case, letters and digits by character: b, 1, page_up, f3, backquote.",
+            "pattern": format!("^{MODIFIERS_PATTERN}[a-z0-9_]+$"),
+            "examples": ["f6", "cmd-home", "ctrl-shift-tab"]
         })
     }
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ParseComboError {
-    #[error("unknown modifier `{0}`; expected ctrl, alt, shift or super in lower case")]
+    #[error("unknown modifier `{0}`; expected ctrl, alt, shift or cmd in lower case")]
     Modifier(String),
     #[error(
         "unknown key `{0}`; expected a lower case key such as a, 1, home, page_up or backquote"
     )]
     Key(String),
+    #[error("modifiers go in the order ctrl, alt, shift, cmd: write `{0}`")]
+    Order(Combo),
 }
 
 impl FromStr for Key {
@@ -122,24 +127,32 @@ impl FromStr for Combo {
     type Err = ParseComboError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (modifiers, key) = s
-            .rsplit_once('+')
-            .map_or((None, s), |(modifiers, key)| (Some(modifiers), key));
-        Ok(Self {
-            modifiers: modifiers
-                .into_iter()
-                .flat_map(|modifiers| modifiers.split('+'))
-                .map(str::parse)
-                .collect::<Result<_, _>>()?,
+        let (names, key) = s
+            .rsplit_once('-')
+            .map_or((None, s), |(names, key)| (Some(names), key));
+        let mut modifiers = Modifiers::empty();
+        let mut ordered = true;
+        for name in names.into_iter().flat_map(|names| names.split('-')) {
+            let modifier: Modifiers = name.parse()?;
+            ordered &= modifiers.bits() < modifier.bits();
+            modifiers |= modifier;
+        }
+        let combo = Self {
+            modifiers,
             key: key.parse()?,
-        })
+        };
+        if ordered {
+            Ok(combo)
+        } else {
+            Err(ParseComboError::Order(combo))
+        }
     }
 }
 
 impl fmt::Display for Combo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (name, _) in self.modifiers.iter_names() {
-            write!(f, "{}+", name.to_ascii_lowercase())?;
+            write!(f, "{}-", name.to_ascii_lowercase())?;
         }
         self.key.fmt(f)
     }
@@ -151,9 +164,9 @@ mod tests {
 
     const CANONICAL: [&str; 9] = [
         "home",
-        "ctrl+shift+tab",
-        "super+backquote",
-        "alt+b",
+        "ctrl-shift-tab",
+        "cmd-backquote",
+        "alt-b",
         "1",
         "page_up",
         "audio_volume_mute",
@@ -163,45 +176,73 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        for s in CANONICAL {
+        for s in CANONICAL.into_iter().chain(["ctrl-alt-shift-cmd-a"]) {
             assert_eq!(s.parse::<Combo>().unwrap().to_string(), s);
         }
     }
 
     #[test]
-    fn canonical_combos_match_the_schema() {
-        let schema = schemars::schema_for!(Combo).to_value();
-        let validator = jsonschema::validator_for(&schema).unwrap();
-        for s in CANONICAL {
-            assert!(validator.is_valid(&s.into()), "{s}");
+    fn modifiers_parse_in_apple_order_only() {
+        let valid = ["ctrl-alt-shift-cmd-a", "alt-cmd-a", "ctrl-shift-tab"];
+        let invalid = [
+            "shift-ctrl-tab",
+            "cmd-ctrl-a",
+            "ctrl-ctrl-a",
+            "ctrl-alt-ctrl-a",
+        ];
+        for s in valid {
+            assert!(s.parse::<Combo>().is_ok(), "{s}");
         }
+        for s in invalid {
+            assert!(
+                matches!(s.parse::<Combo>(), Err(ParseComboError::Order(_))),
+                "{s}"
+            );
+        }
+        assert_eq!(
+            "shift-ctrl-tab".parse::<Combo>().unwrap_err().to_string(),
+            "modifiers go in the order ctrl, alt, shift, cmd: write `ctrl-shift-tab`"
+        );
     }
 
     #[test]
-    fn parser_and_schema_agree_on_separators() {
+    fn parser_and_schema_agree_on_syntax() {
         let schema = schemars::schema_for!(Combo).to_value();
-        let validator = jsonschema::validator_for(&schema).unwrap();
+        let combo = jsonschema::validator_for(&schema).unwrap();
         for (s, valid) in [
-            ("ctrl+a", true),
-            ("ctrl+alt+a", true),
-            ("+a", false),
-            ("ctrl++a", false),
-            ("ctrl+", false),
-            ("+", false),
+            ("a", true),
+            ("ctrl-a", true),
+            ("ctrl-alt-shift-cmd-page_up", true),
+            ("alt-cmd-1", true),
+            ("-a", false),
+            ("ctrl--a", false),
+            ("ctrl-", false),
+            ("-", false),
             ("", false),
+            ("shift-ctrl-a", false),
+            ("ctrl-ctrl-a", false),
+            ("hyper-a", false),
+            ("super-a", false),
+            ("Ctrl-a", false),
+            ("ctrl-A", false),
+            ("ctrl+a", false),
+            ("ctrl a", false),
         ] {
-            assert_eq!(s.parse::<Combo>().is_ok(), valid, "parser: {s:?}");
-            assert_eq!(validator.is_valid(&s.into()), valid, "schema: {s:?}");
+            assert_eq!(s.parse::<Combo>().is_ok(), valid, "combo parser: {s:?}");
+            assert_eq!(combo.is_valid(&s.into()), valid, "combo schema: {s:?}");
+        }
+        for s in CANONICAL {
+            assert!(combo.is_valid(&s.into()), "{s}");
         }
     }
 
     #[test]
     fn rejects_upper_case() {
         for s in [
-            "Shift+CTRL+tab",
-            "ctrl+Tab",
-            "ctrl+TAB",
-            "ctrl+Page_Up",
+            "Shift-CTRL-tab",
+            "ctrl-Tab",
+            "ctrl-TAB",
+            "ctrl-Page_Up",
             "A",
         ] {
             assert!(s.parse::<Combo>().is_err(), "{s}");
@@ -211,12 +252,14 @@ mod tests {
     #[test]
     fn rejects_unknown_names() {
         assert!(matches!(
-            "hyper+KeyA".parse::<Combo>(),
+            "hyper-KeyA".parse::<Combo>(),
             Err(ParseComboError::Modifier(_))
         ));
-        assert!(matches!(
-            "ctrl+tee".parse::<Combo>(),
-            Err(ParseComboError::Key(_))
-        ));
+        let error = "ctrl-tee".parse::<Combo>().unwrap_err();
+        assert_eq!(error, ParseComboError::Key("tee".to_owned()));
+        assert_eq!(
+            error.to_string(),
+            "unknown key `tee`; expected a lower case key such as a, 1, home, page_up or backquote"
+        );
     }
 }

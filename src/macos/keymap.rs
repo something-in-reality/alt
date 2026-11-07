@@ -12,7 +12,7 @@ const MODIFIERS: [(Modifiers, CGEventFlags, u16); 4] = [
     (Modifiers::CTRL, CGEventFlags::MaskControl, 59),
     (Modifiers::ALT, CGEventFlags::MaskAlternate, 58),
     (Modifiers::SHIFT, CGEventFlags::MaskShift, 56),
-    (Modifiers::SUPER, CGEventFlags::MaskCommand, 55),
+    (Modifiers::CMD, CGEventFlags::MaskCommand, 55),
 ];
 
 pub fn key(code: u16) -> Option<Key> {

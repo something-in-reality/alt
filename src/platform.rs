@@ -6,7 +6,8 @@ use std::{convert::Infallible, error::Error, io, sync::Arc};
 use arc_swap::ArcSwap;
 
 use crate::{
-    action::{App, Bluetooth, Display, Keyboard, Media, Window},
+    action::{BundleId, Device, Screen, Side, Size, Tile},
+    combo::Combo,
     config::Config,
     event::{Context, Effect, Event, System, Verdict},
 };
@@ -25,16 +26,25 @@ pub trait Input {
     ) -> Result<Infallible, Self::Error>;
 }
 
-/// What a platform does for each namespace of actions; `Action::perform` dispatches to it.
+/// What a platform does for each verb; `Action::perform` dispatches to it. Window verbs act on the
+/// focused window, or on the launching application's window in `on_launch`.
 pub trait Desktop {
     type Error: Error + From<io::Error> + Send + Sync + 'static;
 
-    fn keyboard(&self, action: &Keyboard) -> Result<(), Self::Error>;
-    fn app(&self, action: &App) -> Result<(), Self::Error>;
-    fn window(&self, action: &Window) -> Result<(), Self::Error>;
-    fn bluetooth(&self, action: &Bluetooth) -> Result<(), Self::Error>;
-    fn media(&self, action: Media) -> Result<(), Self::Error>;
-    fn display(&self, action: Display) -> Result<(), Self::Error>;
+    fn press(&self, combo: Combo) -> Result<(), Self::Error>;
+    fn type_text(&self, text: &str) -> Result<(), Self::Error>;
+    fn open(&self, app: &BundleId) -> Result<(), Self::Error>;
+    fn force_quit(&self, app: &BundleId) -> Result<(), Self::Error>;
+    fn full_screen(&self) -> Result<(), Self::Error>;
+    fn full_screen_tile(&self, side: Side) -> Result<(), Self::Error>;
+    fn tile(&self, tile: Tile) -> Result<(), Self::Error>;
+    fn fill(&self) -> Result<(), Self::Error>;
+    fn center(&self) -> Result<(), Self::Error>;
+    fn move_to(&self, screen: &Screen) -> Result<(), Self::Error>;
+    fn resize(&self, size: Size) -> Result<(), Self::Error>;
+    fn connect(&self, device: &Device) -> Result<(), Self::Error>;
+    fn disconnect(&self, device: &Device) -> Result<(), Self::Error>;
+    fn toggle_connection(&self, device: &Device) -> Result<(), Self::Error>;
     /// Shows a notification of `text`.
     fn notify(&self, text: &str) -> Result<(), Self::Error>;
 }

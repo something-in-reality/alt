@@ -3,7 +3,7 @@
 use std::fmt;
 
 use crate::{
-    action::{AppId, Command},
+    action::{BundleId, Command},
     combo::Combo,
     config::Config,
 };
@@ -22,7 +22,7 @@ pub enum Event {
     /// A brightness key, after the system has applied it.
     BrightnessKey,
     /// An application is launching, or was running when input began.
-    Launch(AppId),
+    Launch(BundleId),
 }
 
 impl fmt::Display for Event {
@@ -59,7 +59,7 @@ pub enum Effect {
     /// Runs a bound command; window actions act on the focused window.
     Run(Command),
     /// Runs a launching application's command; window actions act on its window once it opens.
-    Launch { app: AppId, command: Command },
+    Launch { app: BundleId, command: Command },
     /// External displays follow the built-in display's brightness.
     SyncBrightness,
 }
@@ -73,12 +73,12 @@ pub struct Decision {
 /// The platform's settings that configuration values are compared with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct System {
-    pub natural_scroll: bool,
+    pub natural_scrolling: bool,
 }
 
 /// Live platform state, queried only when a decision needs it.
 pub trait Context {
-    fn front(&self) -> Option<AppId>;
+    fn front(&self) -> Option<BundleId>;
 }
 
 impl Decision {
@@ -102,29 +102,29 @@ impl Config {
     /// reruns commands that repeat.
     pub fn decide(&self, event: Event, system: &System, cx: &impl Context) -> Decision {
         match event {
-            Event::Press { combo, repeat } => match self.bindsym(cx.front().as_ref(), &combo) {
+            Event::Press { combo, repeat } => match self.shortcut(cx.front().as_ref(), &combo) {
                 None => Decision::PASS,
                 Some(command) => Decision {
                     verdict: Verdict::Drop,
                     effect: (!repeat || command.repeats()).then(|| Effect::Run(command.clone())),
                 },
             },
-            Event::Scroll { continuous } => match self.input.pointer.natural_scroll {
-                Some(wanted) if !continuous && wanted != system.natural_scroll => {
+            Event::Scroll { continuous } => match self.mouse.natural_scrolling {
+                Some(wanted) if !continuous && wanted != system.natural_scrolling => {
                     Verdict::Reverse.into()
                 }
                 _ => Decision::PASS,
             },
             Event::BrightnessKey => Decision {
                 effect: self
-                    .display
+                    .displays
                     .sync_brightness
                     .then_some(Effect::SyncBrightness),
                 ..Decision::PASS
             },
             Event::Launch(app) => Decision {
                 effect: self
-                    .app_id
+                    .apps
                     .get(&app)
                     .and_then(|config| config.on_launch.clone())
                     .map(|command| Effect::Launch { app, command }),
@@ -141,17 +141,17 @@ mod tests {
 
     const EXAMPLE: &str = include_str!("../config.toml");
     const NATURAL: System = System {
-        natural_scroll: true,
+        natural_scrolling: true,
     };
-    const FIREFOX: &str = "org.nixos.firefox";
+    const FIREFOX: &str = "org.mozilla.firefox";
     const GHOSTTY: &str = "com.mitchellh.ghostty";
 
     /// The front application.
     struct Front(Option<&'static str>);
 
     impl Context for Front {
-        fn front(&self) -> Option<AppId> {
-            self.0.map(AppId::from)
+        fn front(&self) -> Option<BundleId> {
+            self.0.map(|front| front.parse().unwrap())
         }
     }
 
@@ -159,12 +159,16 @@ mod tests {
         EXAMPLE.parse().unwrap()
     }
 
-    fn press(front: &'static str, combo: &str, repeat: bool) -> Decision {
+    fn decide(config: &Config, front: &'static str, combo: &str, repeat: bool) -> Decision {
         let event = Event::Press {
             combo: combo.parse().unwrap(),
             repeat,
         };
-        config().decide(event, &NATURAL, &Front(Some(front)))
+        config.decide(event, &NATURAL, &Front(Some(front)))
+    }
+
+    fn press(front: &'static str, combo: &str, repeat: bool) -> Decision {
+        decide(&config(), front, combo, repeat)
     }
 
     fn actions(toml: &str) -> Vec<Action> {
@@ -177,45 +181,38 @@ mod tests {
     }
 
     #[test]
-    fn every_trigger_runs_its_command_in_its_application() {
-        let triggers = [
-            (GHOSTTY, "f1", r#"{ keyboard.press = "dictation" }"#),
+    fn every_shortcut_runs_its_command_in_its_application() {
+        let shortcuts = [
+            (GHOSTTY, "f1", r#"{ press = "dictation" }"#),
             (GHOSTTY, "f4", r#"{ exec = "open -a 'Mission Control'" }"#),
-            (GHOSTTY, "f6", r#""media.mute""#),
-            (GHOSTTY, "f7", r#""media.volume_down""#),
-            (GHOSTTY, "f8", r#""media.volume_up""#),
-            (FIREFOX, "f9", r#""display.brightness_down""#),
-            (FIREFOX, "f10", r#""display.brightness_up""#),
-            (GHOSTTY, "ctrl+t", r#"{ keyboard.type = "✓" }"#),
-            (GHOSTTY, "home", r#"{ app.focus = "org.nixos.firefox" }"#),
-            (FIREFOX, "end", r#"{ app.focus = "com.mitchellh.ghostty" }"#),
+            (GHOSTTY, "f6", r#"{ press = "audio_volume_mute" }"#),
+            (GHOSTTY, "f7", r#"{ press = "audio_volume_down" }"#),
+            (GHOSTTY, "f8", r#"{ press = "audio_volume_up" }"#),
+            (FIREFOX, "f9", r#"{ press = "brightness_down" }"#),
+            (FIREFOX, "f10", r#"{ press = "brightness_up" }"#),
+            (GHOSTTY, "ctrl-t", r#"{ type = "✓" }"#),
+            (GHOSTTY, "home", r#"{ open = "org.mozilla.firefox" }"#),
+            (FIREFOX, "end", r#"{ open = "com.mitchellh.ghostty" }"#),
             (
                 GHOSTTY,
-                "alt+b",
-                r#"{ bluetooth.toggle = "f8-8f-07-40-54-34" }"#,
+                "alt-b",
+                r#"{ toggle_connection = "f8-8f-07-40-54-34" }"#,
             ),
-            (GHOSTTY, "super+home", "{ window.resize = { width = 100 } }"),
-            (GHOSTTY, "super+end", "{ window.resize = { width = -100 } }"),
-            (
-                FIREFOX,
-                "super+home",
-                "{ window.resize = { width = -100 } }",
-            ),
-            (FIREFOX, "super+end", "{ window.resize = { width = 100 } }"),
-            (
-                FIREFOX,
-                "page_up",
-                r#"{ keyboard.press = "ctrl+shift+tab" }"#,
-            ),
-            (FIREFOX, "page_down", r#"{ keyboard.press = "ctrl+tab" }"#),
-            (FIREFOX, "backquote", r#"{ keyboard.press = "ctrl+z" }"#),
-            (
-                FIREFOX,
-                "ctrl+backquote",
-                r#"{ keyboard.press = "ctrl+z" }"#,
-            ),
+            (GHOSTTY, "cmd-home", "{ resize = { width = 100 } }"),
+            (GHOSTTY, "cmd-end", "{ resize = { width = -100 } }"),
+            (FIREFOX, "cmd-home", "{ resize = { width = -100 } }"),
+            (FIREFOX, "cmd-end", "{ resize = { width = 100 } }"),
+            (FIREFOX, "page_up", r#"{ press = "ctrl-shift-tab" }"#),
+            (FIREFOX, "page_down", r#"{ press = "ctrl-tab" }"#),
+            (FIREFOX, "backquote", r#"{ press = "ctrl-z" }"#),
+            (FIREFOX, "ctrl-backquote", r#"{ press = "ctrl-z" }"#),
+            (GHOSTTY, "ctrl-alt-arrow_left", r#"{ tile = "left" }"#),
+            (GHOSTTY, "ctrl-alt-arrow_up", r#""full_screen""#),
+            (GHOSTTY, "ctrl-alt-arrow_down", r#"{ move_to = "next" }"#),
+            (GHOSTTY, "ctrl-alt-enter", r#""fill""#),
+            (GHOSTTY, "ctrl-alt-c", r#""center""#),
         ];
-        for (front, combo, expected) in triggers {
+        for (front, combo, expected) in shortcuts {
             let decision = press(front, combo, false);
             assert_eq!(decision.verdict, Verdict::Drop, "{combo} in {front}");
             let Some(Effect::Run(command)) = decision.effect else {
@@ -227,10 +224,10 @@ mod tests {
 
     #[test]
     fn held_keys_repeat_only_incremental_commands() {
-        let resize = press(GHOSTTY, "super+home", true);
+        let resize = press(GHOSTTY, "cmd-home", true);
         assert!(matches!(resize.effect, Some(Effect::Run(_))));
         assert_eq!(press(GHOSTTY, "home", true), Decision::from(Verdict::Drop));
-        assert_eq!(press(GHOSTTY, "alt+b", true), Decision::from(Verdict::Drop));
+        assert_eq!(press(GHOSTTY, "alt-b", true), Decision::from(Verdict::Drop));
     }
 
     #[test]
@@ -240,12 +237,57 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_command_drops_the_key() {
+        let decision = press(FIREFOX, "cmd-h", false);
+        assert_eq!(decision.verdict, Verdict::Drop);
+        let Some(Effect::Run(command)) = decision.effect else {
+            panic!("an empty command is still a command");
+        };
+        assert!(command.as_ref().is_empty());
+    }
+
+    #[test]
+    fn false_passes_the_key_to_the_application() {
+        assert_eq!(press(GHOSTTY, "cmd-h", false), Decision::PASS);
+        assert_eq!(press(GHOSTTY, "cmd-h", true), Decision::PASS);
+    }
+
+    #[test]
+    fn false_at_the_root_is_an_absent_shortcut() {
+        let config: Config = "[shortcuts]\nf1 = false\nf2 = []".parse().unwrap();
+        assert_eq!(decide(&config, FIREFOX, "f1", false), Decision::PASS);
+        assert_eq!(decide(&config, FIREFOX, "f3", false), Decision::PASS);
+        assert_eq!(decide(&config, FIREFOX, "f2", false).verdict, Verdict::Drop);
+    }
+
+    #[test]
+    fn false_in_an_application_ends_the_lookup() {
+        let config: Config =
+            format!("[shortcuts]\nf1 = \"fill\"\n[\"{GHOSTTY}\"]\nshortcuts.f1 = false")
+                .parse()
+                .unwrap();
+        assert_eq!(decide(&config, GHOSTTY, "f1", false), Decision::PASS);
+        assert_eq!(decide(&config, FIREFOX, "f1", false).verdict, Verdict::Drop);
+    }
+
+    #[test]
+    fn an_empty_command_in_an_application_drops_over_a_global_command() {
+        let config: Config =
+            format!("[shortcuts]\nf1 = \"fill\"\n[\"{GHOSTTY}\"]\nshortcuts.f1 = []")
+                .parse()
+                .unwrap();
+        let decision = decide(&config, GHOSTTY, "f1", false);
+        assert_eq!(decision.verdict, Verdict::Drop);
+        assert!(matches!(decision.effect, Some(Effect::Run(c)) if c.as_ref().is_empty()));
+    }
+
+    #[test]
     fn only_discrete_scrolling_against_the_system_reverses() {
-        let scroll = |continuous, natural_scroll| {
+        let scroll = |continuous, natural_scrolling| {
             config()
                 .decide(
                     Event::Scroll { continuous },
-                    &System { natural_scroll },
+                    &System { natural_scrolling },
                     &Front(None),
                 )
                 .verdict
@@ -257,20 +299,22 @@ mod tests {
 
     #[test]
     fn launches_run_their_application_command() {
-        let launch = |app| config().decide(Event::Launch(AppId::from(app)), &NATURAL, &Front(None));
+        let launch = |app: &str| {
+            config().decide(Event::Launch(app.parse().unwrap()), &NATURAL, &Front(None))
+        };
         let Some(Effect::Launch { app, command }) = launch("com.apple.Music").effect else {
             panic!("launching Music runs nothing");
         };
         assert_eq!(
             command.as_ref(),
-            actions(r#"{ app.kill = "com.apple.Music" }"#)
+            actions(r#"{ force_quit = "com.apple.Music" }"#)
         );
-        assert_eq!(app, AppId::from("com.apple.Music"));
+        assert_eq!(app, "com.apple.Music".parse().unwrap());
         let Some(Effect::Launch { app, command }) = launch(FIREFOX).effect else {
             panic!("launching Firefox runs nothing");
         };
-        assert_eq!(command.as_ref(), actions(r#""window.fullscreen""#));
-        assert_eq!(app, AppId::from(FIREFOX));
+        assert_eq!(command.as_ref(), actions(r#""full_screen""#));
+        assert_eq!(app, FIREFOX.parse().unwrap());
         assert_eq!(launch("com.apple.TextEdit"), Decision::PASS);
     }
 
