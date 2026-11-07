@@ -25,7 +25,7 @@ use crate::{
     combo::{Combo, Shortcut},
 };
 
-/// `$XDG_CONFIG_HOME/alt/config.toml`: shortcuts and settings for every application, and a table per application by bundle identifier.
+/// `$XDG_CONFIG_HOME/alt/config.toml`: shortcuts, settings and a table per application.
 #[derive(Debug, Default, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
@@ -105,7 +105,7 @@ impl FromStr for Section {
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct Mouse {
-    /// Natural scrolling for mouse wheels; trackpads and continuous scrolling follow System Settings. Unset follows System Settings.
+    /// Natural scrolling for mouse wheels; unset follows System Settings.
     pub natural_scrolling: Option<bool>,
 }
 
@@ -119,7 +119,7 @@ pub struct Displays {
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct App {
-    /// Runs when the application launches or is running when alt starts; window actions act on its main window.
+    /// Runs when the application launches or is running; window verbs act on its main window.
     pub on_launch: Option<Command>,
     /// Shortcuts while the application is in front, over the global ones.
     pub shortcuts: Shortcuts,
