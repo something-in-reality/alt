@@ -66,3 +66,46 @@ pub fn watch(
     }
     Ok(debouncer)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{thread, time::Instant};
+
+    use super::*;
+
+    const TIMEOUT: Duration = Duration::from_secs(10);
+
+    /// Polls until `done` holds for the live configuration.
+    fn eventually(config: &ArcSwap<Config>, done: impl Fn(&Config) -> bool) -> bool {
+        let start = Instant::now();
+        while start.elapsed() < TIMEOUT {
+            if done(&config.load()) {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        false
+    }
+
+    #[test]
+    fn an_invalid_file_keeps_the_last_valid_configuration() {
+        let dir = std::env::temp_dir().join(format!("alt-watch-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let natural = |config: &Config| config.mouse.natural_scrolling;
+        fs::write(&path, "[mouse]\nnatural_scrolling = false").unwrap();
+        let config = Arc::new(ArcSwap::from_pointee(Config::load(&path).unwrap()));
+        let _watcher = watch(path.clone(), config.clone()).unwrap();
+
+        fs::write(&path, "[mouse]\nnatural_scrolling = true").unwrap();
+        assert!(eventually(&config, |c| natural(c) == Some(true)));
+
+        fs::write(&path, "[bindsym]\nf1 = []").unwrap();
+        thread::sleep(Duration::from_secs(1));
+        assert_eq!(natural(&config.load()), Some(true));
+
+        fs::write(&path, "[mouse]\nnatural_scrolling = false").unwrap();
+        assert!(eventually(&config, |c| natural(c) == Some(false)));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+}
