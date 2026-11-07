@@ -1,7 +1,6 @@
 mod cli;
 
 use std::{
-    env,
     io::{self, IsTerminal, Write},
     process::ExitCode,
     sync::Arc,
@@ -21,13 +20,6 @@ use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::Subscribe
 use self::cli::{Cli, Commands};
 
 fn main() -> anyhow::Result<ExitCode> {
-    if env::var_os(macos::TRUST_CHECK).is_some() {
-        return Ok(if macos::trusted() {
-            ExitCode::SUCCESS
-        } else {
-            ExitCode::FAILURE
-        });
-    }
     // The unified log receives debug messages, which `alt log` streams; a terminal reads info and
     // above on stderr. RUST_LOG overrides both.
     let filter =
@@ -79,6 +71,13 @@ fn main() -> anyhow::Result<ExitCode> {
         Some(Commands::Log) => match macos::log()? {},
         Some(Commands::Setup) => macos::setup::setup()?,
         Some(Commands::Notifications) => println!("{}", macos::notification::authorization()?),
+        Some(Commands::Trusted) => {
+            return Ok(if macos::trusted() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            });
+        }
     }
     Ok(ExitCode::SUCCESS)
 }

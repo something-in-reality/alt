@@ -26,10 +26,6 @@ pub use self::{
     session::{Front, Session},
 };
 
-/// The environment variable that makes the binary report, by its exit status, whether it may
-/// observe and post input.
-pub const TRUST_CHECK: &str = "ALT_TRUST_CHECK";
-
 /// The app's bundle identifier, which also names its log subsystem.
 pub const IDENTIFIER: &str = env!("BUNDLE_IDENTIFIER");
 

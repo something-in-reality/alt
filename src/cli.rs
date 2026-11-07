@@ -37,4 +37,7 @@ pub enum Commands {
     /// Prints the Notifications permission of the app bundle that runs it.
     #[command(hide = true)]
     Notifications,
+    /// Exits successfully when this process may observe and post input.
+    #[command(hide = true)]
+    Trusted,
 }
