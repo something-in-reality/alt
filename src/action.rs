@@ -3,9 +3,10 @@
 //! An action is written `"namespace.verb"` when the verb takes nothing, and
 //! `{ namespace.verb = argument }` when it does.
 
-use std::{borrow::Cow, fmt, io, iter, process, sync::Arc, thread};
+use std::{borrow::Cow, fmt, io, iter, process, str::FromStr, sync::Arc, thread};
 
 use derive_more::{AsRef, Display, From};
+use jiff::{Timestamp, Zoned, tz::TimeZone};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{
     Deserialize, Deserializer,
@@ -23,9 +24,8 @@ use crate::{combo::Combo, platform::Desktop};
 pub enum Action {
     /// Runs a command with `sh -c`.
     Exec(String),
-    /// Shows a notification of a `strftime` template filled with the local time, such as
-    /// `%H:%M`; text without fields shows as written.
-    Notify(String),
+    /// Shows a notification of a `strftime` template filled with the local time.
+    Notify(Template),
     Keyboard(Keyboard),
     App(App),
     Window(Window),
@@ -183,6 +183,28 @@ pub struct AppId(#[as_ref(str)] Arc<str>);
 #[serde(transparent)]
 pub struct Device(#[as_ref(str)] String);
 
+/// A `strftime` template, such as `%H:%M`; text without fields shows as written.
+#[derive(Clone, Debug, PartialEq, Eq, DeserializeFromStr, JsonSchema, AsRef)]
+pub struct Template(#[as_ref(str)] String);
+
+impl Template {
+    /// The template filled with `time`.
+    pub fn format(&self, time: &Zoned) -> Result<String, jiff::Error> {
+        jiff::fmt::strtime::format(&self.0, time)
+    }
+}
+
+impl FromStr for Template {
+    type Err = jiff::Error;
+
+    /// Accepts a template that formats the Unix epoch in UTC.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let template = Self(s.to_owned());
+        template.format(&Timestamp::UNIX_EPOCH.to_zoned(TimeZone::UTC))?;
+        Ok(template)
+    }
+}
+
 impl Action {
     /// Performs the action: `exec` here, every other namespace on `desktop`, to which `notify`
     /// passes its filled template.
@@ -195,10 +217,9 @@ impl Action {
                 thread::spawn(move || child.wait());
                 Ok(())
             }
-            Self::Notify(template) => desktop.notify(
-                &jiff::fmt::strtime::format(template, &jiff::Zoned::now())
-                    .map_err(io::Error::other)?,
-            ),
+            Self::Notify(template) => {
+                desktop.notify(&template.format(&Zoned::now()).map_err(io::Error::other)?)
+            }
             Self::Keyboard(action) => desktop.keyboard(action),
             Self::App(action) => desktop.app(action),
             Self::Window(action) => desktop.window(action),
@@ -449,12 +470,26 @@ mod tests {
         assert!(!Action::Window(Window::Tile(Tile::Right)).repeats());
         assert_eq!(
             command(r#"{ notify = "%H:%M" }"#).unwrap(),
-            [Action::Notify("%H:%M".to_owned())]
+            [Action::Notify("%H:%M".parse().unwrap())]
         );
         assert_eq!(Tile::TopLeft.to_string(), "Top Left");
         assert_eq!(Tile::Bottom.to_string(), "Bottom");
         for screen in ["builtin", "next", "MSI MP341CQ"] {
             assert_eq!(screen.parse::<Screen>().unwrap().to_string(), screen);
+        }
+    }
+
+    #[test]
+    fn notify_templates_are_checked_when_parsed() {
+        for valid in ["%H:%M · %a %-d %b", "%Z %z", "no fields", ""] {
+            assert!(
+                command(&format!("{{ notify = {valid:?} }}")).is_ok(),
+                "{valid}"
+            );
+        }
+        for invalid in ["%", "100%", "%H:%", "%!", "%-"] {
+            let error = command(&format!("{{ notify = {invalid:?} }}")).unwrap_err();
+            assert!(error.to_string().contains("strftime"), "{invalid}: {error}");
         }
     }
 
