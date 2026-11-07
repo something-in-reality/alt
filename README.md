@@ -8,7 +8,7 @@ A daemon taps key, scroll and system-key events and runs the actions their bindi
 ## Commands
 
 ```text
-alt          checks the configuration; reports the process, signature and permissions
+alt          checks the configuration, exiting non-zero when invalid; reports the app
 alt run      the daemon
 alt edit     edits the configuration; writes it once valid
 alt log      streams the daemon's log

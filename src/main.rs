@@ -42,9 +42,10 @@ fn main() -> anyhow::Result<ExitCode> {
     match cli.command {
         None => {
             let path = path()?;
-            let config = match Config::load(&path) {
+            let loaded = Config::load(&path);
+            let config = match &loaded {
                 Ok(_) => path.display().to_string(),
-                Err(error) => format!("{}: {error}", path.display()),
+                Err(error) => error.to_string(),
             };
             // A reader that closes early, such as `head`, ends the report.
             match writeln!(
@@ -54,6 +55,9 @@ fn main() -> anyhow::Result<ExitCode> {
             ) {
                 Err(error) if error.kind() == io::ErrorKind::BrokenPipe => {}
                 written => written?,
+            }
+            if loaded.is_err() {
+                return Ok(ExitCode::FAILURE);
             }
         }
         Some(Commands::Run) => {

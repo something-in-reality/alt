@@ -72,8 +72,11 @@ pub struct App {
 pub enum Error {
     #[error("reading {}: {error}", path.display())]
     Read { path: PathBuf, error: io::Error },
-    #[error(transparent)]
-    Parse(#[from] toml::de::Error),
+    #[error("{}: {error}", path.display())]
+    Parse {
+        path: PathBuf,
+        error: toml::de::Error,
+    },
 }
 
 impl Config {
@@ -82,7 +85,10 @@ impl Config {
             path: path.to_owned(),
             error,
         })?;
-        Ok(text.parse()?)
+        text.parse().map_err(|error| Error::Parse {
+            path: path.to_owned(),
+            error,
+        })
     }
 
     /// The JSON Schema of the configuration file, draft-07 for editors' TOML language servers.

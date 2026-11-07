@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 /// Keyboard, pointer, window and display behaviour outside the terminal.
 ///
 /// Without a command, checks the configuration and reports the app: its process, signature and
-/// Accessibility and Notifications permissions.
+/// Accessibility and Notifications permissions. Exits non-zero when the configuration is invalid.
 #[derive(Parser)]
 #[command(name = "alt", version)]
 pub struct Cli {
