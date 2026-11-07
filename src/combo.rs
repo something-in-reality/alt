@@ -122,11 +122,13 @@ impl FromStr for Combo {
     type Err = ParseComboError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (modifiers, key) = s.rsplit_once('+').unwrap_or(("", s));
+        let (modifiers, key) = s
+            .rsplit_once('+')
+            .map_or((None, s), |(modifiers, key)| (Some(modifiers), key));
         Ok(Self {
             modifiers: modifiers
-                .split('+')
-                .filter(|name| !name.is_empty())
+                .into_iter()
+                .flat_map(|modifiers| modifiers.split('+'))
                 .map(str::parse)
                 .collect::<Result<_, _>>()?,
             key: key.parse()?,
@@ -173,7 +175,24 @@ mod tests {
         for s in CANONICAL {
             assert!(validator.is_valid(&s.into()), "{s}");
         }
-        assert!(!validator.is_valid(&"ctrl+".into()));
+    }
+
+    #[test]
+    fn parser_and_schema_agree_on_separators() {
+        let schema = schemars::schema_for!(Combo).to_value();
+        let validator = jsonschema::validator_for(&schema).unwrap();
+        for (s, valid) in [
+            ("ctrl+a", true),
+            ("ctrl+alt+a", true),
+            ("+a", false),
+            ("ctrl++a", false),
+            ("ctrl+", false),
+            ("+", false),
+            ("", false),
+        ] {
+            assert_eq!(s.parse::<Combo>().is_ok(), valid, "parser: {s:?}");
+            assert_eq!(validator.is_valid(&s.into()), valid, "schema: {s:?}");
+        }
     }
 
     #[test]
