@@ -22,7 +22,7 @@
       packages = forAllSystems (system: {
         default = nixpkgs.legacyPackages.${system}.callPackage ./package.nix { };
         glove80 = nixpkgs.legacyPackages.${system}.callPackage ./glove80/package.nix {
-          inherit zmk system;
+          inherit zmk;
         };
       });
 

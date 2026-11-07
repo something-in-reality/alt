@@ -2,12 +2,23 @@
 # $out/share/alt/glove80.uf2, which either half's bootloader accepts and `alt setup` finds on
 # XDG_DATA_DIRS. The keymap sends standard keys; the app's bindings give them meaning.
 {
+  pkgs,
   zmk,
-  system,
   runCommand,
 }:
 let
-  firmware = import zmk { pkgs = import "${zmk}/nix/pinned-nixpkgs.nix" { inherit system; }; };
+  # MoErgo's expressions name python3Packages.can (now python-can) and runCommandNoCC (now
+  # runCommand); the extension maps both onto this nixpkgs.
+  firmware = import zmk {
+    pkgs = pkgs.extend (
+      final: prev: {
+        runCommandNoCC = prev.runCommand;
+        pythonPackagesExtensions = prev.pythonPackagesExtensions ++ [
+          (pyfinal: _: { can = pyfinal.python-can; })
+        ];
+      }
+    );
+  };
   half =
     board:
     firmware.zmk.override {
