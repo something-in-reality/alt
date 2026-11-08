@@ -35,22 +35,13 @@ use super::{
 use crate::{
     action::BundleId,
     combo::Combo,
-    event::{Context, Event, System, Verdict},
+    event::{Context, Event, Verdict},
 };
 
-/// The front application, which NSWorkspace's notifications keep current, so a decision reads it
-/// without a call to another process.
+/// The live platform state: the front application, which NSWorkspace's notifications keep current,
+/// so a decision reads it without a call to another process.
 pub(super) struct Front {
     front: RefCell<Option<BundleId>>,
-}
-
-/// The platform's settings, read once.
-pub(super) fn system() -> System {
-    let defaults = NSUserDefaults::standardUserDefaults();
-    let key = NSString::from_str("com.apple.swipescrolldirection");
-    System {
-        natural_scrolling: defaults.objectForKey(&key).is_none() || defaults.boolForKey(&key),
-    }
 }
 
 /// Runs until the process ends, deciding each event with `handle`.
@@ -111,6 +102,14 @@ pub(super) fn run(
 impl Context for Front {
     fn front(&self) -> Option<BundleId> {
         self.front.borrow().clone()
+    }
+
+    /// Reads the preference on each call, which System Settings changes while alt runs; an unset
+    /// preference is natural scrolling, the macOS default.
+    fn natural_scrolling(&self) -> bool {
+        let defaults = NSUserDefaults::standardUserDefaults();
+        let key = NSString::from_str("com.apple.swipescrolldirection");
+        defaults.objectForKey(&key).is_none() || defaults.boolForKey(&key)
     }
 }
 

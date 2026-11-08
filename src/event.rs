@@ -70,15 +70,12 @@ pub struct Decision {
     pub effect: Option<Effect>,
 }
 
-/// The platform's settings that configuration values are compared with.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct System {
-    pub natural_scrolling: bool,
-}
-
 /// Live platform state, queried only when a decision needs it.
 pub trait Context {
     fn front(&self) -> Option<BundleId>;
+
+    /// Whether System Settings has natural scrolling on.
+    fn natural_scrolling(&self) -> bool;
 }
 
 impl Decision {
@@ -100,7 +97,7 @@ impl From<Verdict> for Decision {
 impl Config {
     /// Decides an event: a bound press drops the key and runs its command, and an autorepeat
     /// reruns commands that repeat.
-    pub fn decide(&self, event: Event, system: &System, cx: &impl Context) -> Decision {
+    pub fn decide(&self, event: Event, cx: &impl Context) -> Decision {
         match event {
             Event::Press { combo, repeat } => match self.shortcut(cx.front().as_ref(), &combo) {
                 None => Decision::PASS,
@@ -110,7 +107,7 @@ impl Config {
                 },
             },
             Event::Scroll { continuous } => match self.mouse.natural_scrolling {
-                Some(wanted) if !continuous && wanted != system.natural_scrolling => {
+                Some(wanted) if !continuous && wanted != cx.natural_scrolling() => {
                     Verdict::Reverse.into()
                 }
                 _ => Decision::PASS,
@@ -140,18 +137,31 @@ mod tests {
     use crate::action::Action;
 
     const EXAMPLE: &str = include_str!("../config.toml");
-    const NATURAL: System = System {
-        natural_scrolling: true,
-    };
     const FIREFOX: &str = "org.mozilla.firefox";
     const GHOSTTY: &str = "com.mitchellh.ghostty";
 
-    /// The front application.
-    struct Front(Option<&'static str>);
+    /// The front application, and System Settings' natural scrolling.
+    struct Cx {
+        front: Option<&'static str>,
+        natural_scrolling: bool,
+    }
 
-    impl Context for Front {
+    impl Cx {
+        const fn new(front: Option<&'static str>) -> Self {
+            Self {
+                front,
+                natural_scrolling: true,
+            }
+        }
+    }
+
+    impl Context for Cx {
         fn front(&self) -> Option<BundleId> {
-            self.0.map(|front| front.parse().unwrap())
+            self.front.map(|front| front.parse().unwrap())
+        }
+
+        fn natural_scrolling(&self) -> bool {
+            self.natural_scrolling
         }
     }
 
@@ -164,7 +174,7 @@ mod tests {
             combo: combo.parse().unwrap(),
             repeat,
         };
-        config.decide(event, &NATURAL, &Front(Some(front)))
+        config.decide(event, &Cx::new(Some(front)))
     }
 
     fn press(front: &'static str, combo: &str, repeat: bool) -> Decision {
@@ -284,13 +294,11 @@ mod tests {
     #[test]
     fn only_discrete_scrolling_against_the_system_reverses() {
         let scroll = |continuous, natural_scrolling| {
-            config()
-                .decide(
-                    Event::Scroll { continuous },
-                    &System { natural_scrolling },
-                    &Front(None),
-                )
-                .verdict
+            let cx = Cx {
+                natural_scrolling,
+                ..Cx::new(None)
+            };
+            config().decide(Event::Scroll { continuous }, &cx).verdict
         };
         assert_eq!(scroll(false, true), Verdict::Reverse);
         assert_eq!(scroll(true, true), Verdict::Pass);
@@ -299,9 +307,8 @@ mod tests {
 
     #[test]
     fn launches_run_their_application_command() {
-        let launch = |app: &str| {
-            config().decide(Event::Launch(app.parse().unwrap()), &NATURAL, &Front(None))
-        };
+        let launch =
+            |app: &str| config().decide(Event::Launch(app.parse().unwrap()), &Cx::new(None));
         let Some(Effect::Launch { app, command }) = launch("com.apple.Music").effect else {
             panic!("launching Music runs nothing");
         };
@@ -320,7 +327,7 @@ mod tests {
 
     #[test]
     fn brightness_syncs_when_configured() {
-        let decide = |config: Config| config.decide(Event::BrightnessKey, &NATURAL, &Front(None));
+        let decide = |config: Config| config.decide(Event::BrightnessKey, &Cx::new(None));
         assert_eq!(decide(config()).effect, Some(Effect::SyncBrightness));
         assert_eq!(decide(Config::default()), Decision::PASS);
     }

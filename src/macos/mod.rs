@@ -54,9 +54,8 @@ pub fn trusted() -> bool {
 /// Decides each session event against the live `config`, and applies the effects.
 pub fn run(config: Arc<ArcSwap<Config>>) -> Result<Infallible, Error> {
     let dispatcher = Dispatcher::new()?;
-    let system = session::system();
     session::run(move |event, front| {
-        let decision = config.load().decide(event.clone(), &system, front);
+        let decision = config.load().decide(event.clone(), front);
         if decision.verdict != Verdict::Pass || decision.effect.is_some() {
             tracing::debug!(%event, verdict = ?decision.verdict, effect = ?decision.effect);
         }
