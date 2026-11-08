@@ -17,7 +17,7 @@ use super::{
     Error, app, bluetooth, display::Displays, notification, synth::Source, window::Window,
 };
 use crate::{
-    action::{Action, BundleId, Command},
+    action::{Action, Command},
     event::Effect,
 };
 
@@ -31,11 +31,11 @@ pub(super) struct Dispatcher {
     displays: Displays,
 }
 
-/// Performs actions, posting input from a private event source; window verbs act on `app`'s
-/// window, or without one on the focused window.
+/// Performs actions, posting input from a private event source; window verbs act on the window of
+/// process `pid`, or without one on the focused window.
 struct Mac {
     source: Source,
-    app: Option<BundleId>,
+    pid: Option<i32>,
 }
 
 impl Dispatcher {
@@ -65,18 +65,18 @@ impl Dispatcher {
                     pending.fetch_sub(1, Ordering::AcqRel);
                 });
             }
-            Effect::Launch { app, command } => self
+            Effect::Launch { pid, command } => self
                 .launches
-                .exec_async(move || autoreleasepool(|_| execute(&command, Some(app)))),
+                .exec_async(move || autoreleasepool(|_| execute(&command, Some(pid)))),
             Effect::SyncBrightness => self.displays.sync(),
         }
     }
 }
 
 /// Runs each action of `command`, logging those that fail.
-fn execute(command: &Command, app: Option<BundleId>) {
+fn execute(command: &Command, pid: Option<i32>) {
     let mac = match Source::new() {
-        Ok(source) => Mac { source, app },
+        Ok(source) => Mac { source, pid },
         Err(error) => return tracing::warn!(%error, "creating an event source"),
     };
     for action in command {
@@ -88,7 +88,7 @@ fn execute(command: &Command, app: Option<BundleId>) {
 
 impl Mac {
     fn window(&self) -> Result<Window, Error> {
-        Window::new(self.app.as_ref())
+        Window::new(self.pid)
     }
 
     /// Performs `action`: `exec` spawns `sh -c`, `notify` fills its template with the local time.

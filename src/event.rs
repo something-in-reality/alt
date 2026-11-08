@@ -21,8 +21,11 @@ pub enum Event {
     },
     /// A brightness key, after the system has applied it.
     BrightnessKey,
-    /// An application is launching.
-    Launch(BundleId),
+    /// An application is launching, as the process `pid`.
+    Launch {
+        app: BundleId,
+        pid: i32,
+    },
 }
 
 impl fmt::Display for Event {
@@ -39,7 +42,7 @@ impl fmt::Display for Event {
             Self::Scroll { continuous: true } => f.write_str("scroll (continuous)"),
             Self::Scroll { continuous: false } => f.write_str("scroll (discrete)"),
             Self::BrightnessKey => f.write_str("brightness key"),
-            Self::Launch(app) => write!(f, "launch {app}"),
+            Self::Launch { app, .. } => write!(f, "launch {app}"),
         }
     }
 }
@@ -59,8 +62,9 @@ pub enum Effect {
     /// Runs a bound command; window actions act on the focused window. `repeat` marks a held key's
     /// autorepeat.
     Run { command: Command, repeat: bool },
-    /// Runs a launching application's command; window actions act on its window once it opens.
-    Launch { app: BundleId, command: Command },
+    /// Runs the command of a launching application, the process `pid`; window actions act on its
+    /// window once it opens.
+    Launch { pid: i32, command: Command },
     /// External displays follow the built-in display's brightness.
     SyncBrightness,
 }
@@ -123,12 +127,12 @@ impl Config {
                     .then_some(Effect::SyncBrightness),
                 ..Decision::PASS
             },
-            Event::Launch(app) => Decision {
+            Event::Launch { app, pid } => Decision {
                 effect: self
                     .apps
                     .get(&app)
                     .and_then(|config| config.on_launch.clone())
-                    .map(|command| Effect::Launch { app, command }),
+                    .map(|command| Effect::Launch { pid, command }),
                 ..Decision::PASS
             },
         }
@@ -315,22 +319,26 @@ mod tests {
     }
 
     #[test]
-    fn launches_run_their_application_command() {
-        let launch =
-            |app: &str| config().decide(Event::Launch(app.parse().unwrap()), &Cx::new(None));
-        let Some(Effect::Launch { app, command }) = launch("com.apple.Music").effect else {
+    fn launches_run_their_application_command_on_their_process() {
+        let launch = |app: &str| {
+            let event = Event::Launch {
+                app: app.parse().unwrap(),
+                pid: 42,
+            };
+            config().decide(event, &Cx::new(None))
+        };
+        let Some(Effect::Launch { pid, command }) = launch("com.apple.Music").effect else {
             panic!("launching Music runs nothing");
         };
         assert_eq!(
             command.as_ref(),
             actions(r#"{ force_quit = "com.apple.Music" }"#)
         );
-        assert_eq!(app, "com.apple.Music".parse().unwrap());
-        let Some(Effect::Launch { app, command }) = launch(FIREFOX).effect else {
+        assert_eq!(pid, 42);
+        let Some(Effect::Launch { command, .. }) = launch(FIREFOX).effect else {
             panic!("launching Firefox runs nothing");
         };
         assert_eq!(command.as_ref(), actions(r#""full_screen""#));
-        assert_eq!(app, FIREFOX.parse().unwrap());
         assert_eq!(launch("com.apple.TextEdit"), Decision::PASS);
     }
 

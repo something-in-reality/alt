@@ -60,9 +60,15 @@ pub(super) fn run(
     });
     let launch = {
         let (apps, handle) = (apps.clone(), handle.clone());
-        move |app: &NSRunningApplication| {
-            if let Some(app) = app::id(app) {
-                _ = handle(Event::Launch(app), &apps);
+        move |running: &NSRunningApplication| {
+            if let Some(app) = app::id(running) {
+                _ = handle(
+                    Event::Launch {
+                        app,
+                        pid: running.processIdentifier(),
+                    },
+                    &apps,
+                );
             }
         }
     };

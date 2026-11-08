@@ -10,8 +10,8 @@ use std::{
 use objc2_application_services::{AXError, AXUIElement, AXValue, AXValueType};
 use objc2_core_foundation::{CFArray, CFBoolean, CFRetained, CFString, CFType, CGSize};
 
-use super::{Error, app};
-use crate::action::{BundleId, Screen, Side, Size, Tile};
+use super::Error;
+use crate::action::{Screen, Side, Size, Tile};
 
 /// Polls for an application's window, which opens after its launch notification: 15 seconds.
 const POLL: Duration = Duration::from_millis(250);
@@ -30,11 +30,11 @@ pub struct Window {
 }
 
 impl Window {
-    /// `app`'s main window once it opens, or without `app` the focused window.
-    pub fn new(app: Option<&BundleId>) -> Result<Self, Error> {
-        let (application, window) = match app {
-            Some(app) => {
-                let application = unsafe { AXUIElement::new_application(app::pid(app)?) };
+    /// The main window of process `pid` once it opens, or without `pid` the focused window.
+    pub fn new(pid: Option<i32>) -> Result<Self, Error> {
+        let (application, window) = match pid {
+            Some(pid) => {
+                let application = unsafe { AXUIElement::new_application(pid) };
                 bound(&application)?;
                 let window = main_window(&application)?;
                 (application, window)
