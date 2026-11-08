@@ -56,8 +56,9 @@ pub enum Verdict {
 /// Work the platform does in response.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
-    /// Runs a bound command; window actions act on the focused window.
-    Run(Command),
+    /// Runs a bound command; window actions act on the focused window. `repeat` marks a held key's
+    /// autorepeat.
+    Run { command: Command, repeat: bool },
     /// Runs a launching application's command; window actions act on its window once it opens.
     Launch { app: BundleId, command: Command },
     /// External displays follow the built-in display's brightness.
@@ -103,7 +104,10 @@ impl Config {
                 None => Decision::PASS,
                 Some(command) => Decision {
                     verdict: Verdict::Drop,
-                    effect: (!repeat || command.repeats()).then(|| Effect::Run(command.clone())),
+                    effect: (!repeat || command.repeats()).then(|| Effect::Run {
+                        command: command.clone(),
+                        repeat,
+                    }),
                 },
             },
             Event::Scroll { continuous } => match self.mouse.natural_scrolling {
@@ -225,7 +229,7 @@ mod tests {
         for (front, combo, expected) in shortcuts {
             let decision = press(front, combo, false);
             assert_eq!(decision.verdict, Verdict::Drop, "{combo} in {front}");
-            let Some(Effect::Run(command)) = decision.effect else {
+            let Some(Effect::Run { command, .. }) = decision.effect else {
                 panic!("{combo} in {front} runs nothing");
             };
             assert_eq!(command.as_ref(), actions(expected), "{combo} in {front}");
@@ -235,7 +239,10 @@ mod tests {
     #[test]
     fn held_keys_repeat_only_incremental_commands() {
         let resize = press(GHOSTTY, "cmd-home", true);
-        assert!(matches!(resize.effect, Some(Effect::Run(_))));
+        assert!(matches!(
+            resize.effect,
+            Some(Effect::Run { repeat: true, .. })
+        ));
         assert_eq!(press(GHOSTTY, "home", true), Decision::from(Verdict::Drop));
         assert_eq!(press(GHOSTTY, "alt-b", true), Decision::from(Verdict::Drop));
     }
@@ -250,7 +257,7 @@ mod tests {
     fn an_empty_command_drops_the_key() {
         let decision = press(FIREFOX, "cmd-h", false);
         assert_eq!(decision.verdict, Verdict::Drop);
-        let Some(Effect::Run(command)) = decision.effect else {
+        let Some(Effect::Run { command, .. }) = decision.effect else {
             panic!("an empty command is still a command");
         };
         assert!(command.as_ref().is_empty());
@@ -288,7 +295,9 @@ mod tests {
                 .unwrap();
         let decision = decide(&config, GHOSTTY, "f1", false);
         assert_eq!(decision.verdict, Verdict::Drop);
-        assert!(matches!(decision.effect, Some(Effect::Run(c)) if c.as_ref().is_empty()));
+        assert!(
+            matches!(decision.effect, Some(Effect::Run { command, .. }) if command.as_ref().is_empty())
+        );
     }
 
     #[test]

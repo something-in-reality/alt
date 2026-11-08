@@ -1,6 +1,13 @@
 //! Effects run on GCD queues, and actions on the macOS APIs.
 
-use std::{io, process, thread};
+use std::{
+    io, process,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    thread,
+};
 
 use dispatch2::{DispatchQueue, DispatchQueueAttr, DispatchRetained};
 use jiff::Zoned;
@@ -15,9 +22,11 @@ use crate::{
 };
 
 /// Applies effects: commands in order on one serial queue, launched applications' commands on
-/// another, as they wait for their windows, and brightness on a third.
+/// another, as they wait for their windows, and brightness on a third. A held key's autorepeat
+/// runs only when no command is queued or running.
 pub(super) struct Dispatcher {
     actions: DispatchRetained<DispatchQueue>,
+    pending: Arc<AtomicUsize>,
     launches: DispatchRetained<DispatchQueue>,
     displays: Displays,
 }
@@ -36,6 +45,7 @@ impl Dispatcher {
         }
         Ok(Self {
             actions: DispatchQueue::new("alt.actions", DispatchQueueAttr::SERIAL),
+            pending: Arc::default(),
             launches: DispatchQueue::new("alt.launches", DispatchQueueAttr::SERIAL),
             displays: Displays::new()?,
         })
@@ -44,9 +54,17 @@ impl Dispatcher {
     /// Applies `effect` asynchronously, in order per queue.
     pub(super) fn apply(&self, effect: Effect) {
         match effect {
-            Effect::Run(command) => self
-                .actions
-                .exec_async(move || autoreleasepool(|_| execute(&command, None))),
+            Effect::Run { command, repeat } => {
+                if repeat && self.pending.load(Ordering::Acquire) > 0 {
+                    return;
+                }
+                self.pending.fetch_add(1, Ordering::AcqRel);
+                let pending = self.pending.clone();
+                self.actions.exec_async(move || {
+                    autoreleasepool(|_| execute(&command, None));
+                    pending.fetch_sub(1, Ordering::AcqRel);
+                });
+            }
             Effect::Launch { app, command } => self
                 .launches
                 .exec_async(move || autoreleasepool(|_| execute(&command, Some(app)))),

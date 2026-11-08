@@ -101,7 +101,8 @@ A command is an action, or a list of actions that run in order. An action is a v
 Window verbs act on the focused window in a shortcut, and on the application's main window in
 `on_launch`. Those that name a Window menu item press it, found by its English title; `resize` and
 `full_screen` set the window's Accessibility attributes. `move_to` lists the other displays, in menu
-order. A held key repeats a command when every action in it is `press`, `type` or `resize`.
+order. A held key repeats a command when every action in it is `press`, `type` or `resize`, and no earlier
+command is still queued or running.
 
 ### Errors
 
