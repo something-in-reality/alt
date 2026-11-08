@@ -107,7 +107,8 @@ order. A held key repeats a command when every action in it is `press`, `type` o
 
 An invalid file reports the line and the offending key or value. `alt` exits non-zero for an
 invalid file, `alt edit` offers to edit it again, and the daemon keeps the last valid configuration
-when a changed file is invalid.
+when a changed file is invalid. A daemon that starts with a missing or invalid file runs the default
+configuration until the file is valid.
 
 The first line, `#:schema <path or url>`, makes taplo, and so helix, validate and complete the file
 against the schema; the package installs it at `share/alt/config.schema.json`, which the Nix module

@@ -62,7 +62,7 @@ fn main() -> anyhow::Result<ExitCode> {
         }
         Some(Commands::Run) => {
             let path = path()?;
-            let config = Arc::new(ArcSwap::from_pointee(Config::load(&path)?));
+            let config = Arc::<ArcSwap<Config>>::default();
             let _watcher = watch(path, config.clone()).context("watching the configuration")?;
             macos::run(config)?;
         }

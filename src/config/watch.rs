@@ -16,9 +16,9 @@ use notify_debouncer_full::{
 
 use super::Config;
 
-/// Loads `path` into `config` on each change to it; an invalid file keeps the last valid
-/// configuration. The watch covers the directories of `path` and of the file it links to, which
-/// see the link replaced and the linked file edited.
+/// Loads `path` into `config` once the watch starts and on each change to it; a missing or invalid
+/// file keeps the current configuration. The watch covers the directories of `path` and of the file
+/// it links to, which see the link replaced and the linked file edited.
 pub fn watch(
     path: PathBuf,
     config: Arc<ArcSwap<Config>>,
@@ -37,6 +37,7 @@ pub fn watch(
         .filter_map(|path| path.file_name())
         .map(ToOwned::to_owned)
         .collect();
+    let (watched, live) = (path.clone(), config.clone());
     let mut debouncer = new_debouncer(
         Duration::from_millis(250),
         None,
@@ -47,13 +48,7 @@ pub fn watch(
                     .flat_map(|event| &event.paths)
                     .any(|changed| changed.file_name().is_some_and(|name| names.contains(name)));
                 if changed {
-                    match Config::load(&path) {
-                        Ok(loaded) => {
-                            config.store(Arc::new(loaded));
-                            tracing::info!(path = %path.display(), "reloaded");
-                        }
-                        Err(error) => tracing::error!(%error, "keeping the last configuration"),
-                    }
+                    reload(&watched, &live);
                 }
             }
             Err(errors) => errors
@@ -62,9 +57,22 @@ pub fn watch(
         },
     )?;
     for directory in &directories {
+        fs::create_dir_all(directory)?;
         debouncer.watch(directory, RecursiveMode::NonRecursive)?;
     }
+    reload(&path, &config);
     Ok(debouncer)
+}
+
+/// Loads `path` into `config`, keeping the current configuration when `path` does not load.
+fn reload(path: &Path, config: &ArcSwap<Config>) {
+    match Config::load(path) {
+        Ok(loaded) => {
+            config.store(Arc::new(loaded));
+            tracing::info!(path = %path.display(), "loaded");
+        }
+        Err(error) => tracing::error!(%error, "keeping the current configuration"),
+    }
 }
 
 #[cfg(test)]
@@ -94,8 +102,9 @@ mod tests {
         let path = dir.join("config.toml");
         let natural = |config: &Config| config.mouse.natural_scrolling;
         fs::write(&path, "[mouse]\nnatural_scrolling = false").unwrap();
-        let config = Arc::new(ArcSwap::from_pointee(Config::load(&path).unwrap()));
+        let config = Arc::<ArcSwap<Config>>::default();
         let _watcher = watch(path.clone(), config.clone()).unwrap();
+        assert_eq!(natural(&config.load()), Some(false));
 
         fs::write(&path, "[mouse]\nnatural_scrolling = true").unwrap();
         assert!(eventually(&config, |c| natural(c) == Some(true)));
@@ -106,6 +115,19 @@ mod tests {
 
         fs::write(&path, "[mouse]\nnatural_scrolling = false").unwrap();
         assert!(eventually(&config, |c| natural(c) == Some(false)));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_missing_file_starts_the_default_configuration_until_it_exists() {
+        let dir = std::env::temp_dir().join(format!("alt-watch-missing-{}", std::process::id()));
+        let path = dir.join("alt").join("config.toml");
+        let config = Arc::<ArcSwap<Config>>::default();
+        let _watcher = watch(path.clone(), config.clone()).unwrap();
+        assert_eq!(config.load().mouse.natural_scrolling, None);
+
+        fs::write(&path, "[mouse]\nnatural_scrolling = true").unwrap();
+        assert!(eventually(&config, |c| c.mouse.natural_scrolling == Some(true)));
         fs::remove_dir_all(&dir).unwrap();
     }
 }
