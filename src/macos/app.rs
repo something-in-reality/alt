@@ -56,14 +56,6 @@ pub fn force_quit(app: &BundleId) -> Result<(), Error> {
     Ok(())
 }
 
-/// The running applications.
-pub fn all() -> impl Iterator<Item = BundleId> {
-    NSWorkspace::sharedWorkspace()
-        .runningApplications()
-        .into_iter()
-        .filter_map(|app| id(&app))
-}
-
 /// Calls `f` with the application of each NSWorkspace `notification`, while the observer lives.
 pub fn observe(
     notification: &NSNotificationName,

@@ -52,8 +52,8 @@ shortcuts.cmd-h = false                # the key reaches Ghostty
 
 An application's table is named by its quoted bundle identifier, which always has a dot:
 `["org.mozilla.firefox"]`. Its shortcuts override `[shortcuts]`. Write them as `shortcuts.cmd-h = ...`
-under one header per application. `on_launch` also runs for applications already running when alt
-starts, and window verbs wait up to 15 seconds for the main window.
+under one header per application. `on_launch` runs for applications that launch while alt runs, and
+window verbs wait up to 15 seconds for the main window.
 
 ### Shortcuts
 

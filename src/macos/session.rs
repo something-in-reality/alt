@@ -62,7 +62,6 @@ pub(super) fn run(
         let (apps, handle) = (apps.clone(), handle.clone());
         move |app| _ = handle(Event::Launch(app), &apps)
     };
-    app::all().for_each(&launch);
     let _launch = app::observe(
         unsafe { NSWorkspaceWillLaunchApplicationNotification },
         launch,

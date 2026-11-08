@@ -21,7 +21,7 @@ pub enum Event {
     },
     /// A brightness key, after the system has applied it.
     BrightnessKey,
-    /// An application is launching, or was running when input began.
+    /// An application is launching.
     Launch(BundleId),
 }
 
