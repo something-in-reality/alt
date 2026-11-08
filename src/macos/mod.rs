@@ -57,7 +57,7 @@ pub fn run(config: Arc<ArcSwap<Config>>) -> Result<Infallible, Error> {
     session::run(move |event, front| {
         let decision = config.load().decide(event.clone(), front);
         if decision.verdict != Verdict::Pass || decision.effect.is_some() {
-            tracing::debug!(%event, verdict = ?decision.verdict, effect = ?decision.effect);
+            tracing::debug!(%event, verdict = ?decision.verdict, effect = decision.effect.is_some());
         }
         if let Some(effect) = decision.effect {
             dispatcher.apply(effect);

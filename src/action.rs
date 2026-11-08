@@ -12,9 +12,10 @@ use serde_with::DeserializeFromStr;
 
 use crate::combo::Combo;
 
-/// An action: a verb, or `{ verb = argument }`.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
+/// An action: a verb, or `{ verb = argument }`; its `&str` is the verb.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema, strum::IntoStaticStr)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum Action {
     /// Presses a combination as a keyboard does; media and brightness keys post the system key.
     Press(Combo),
@@ -296,6 +297,16 @@ mod tests {
         for screen in ["built_in", "next", "MSI MP341CQ"] {
             assert_eq!(screen.parse::<Screen>().unwrap().to_string(), screen);
         }
+    }
+
+    #[test]
+    fn actions_convert_to_their_verbs() {
+        let verbs: Vec<&str> = command(r#"[{ type = "secret" }, "fill", { tile = "left" }]"#)
+            .unwrap()
+            .iter()
+            .map(<&str>::from)
+            .collect();
+        assert_eq!(verbs, ["type", "fill", "tile"]);
     }
 
     #[test]

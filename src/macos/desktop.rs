@@ -81,7 +81,7 @@ fn execute(command: &Command, pid: Option<i32>) {
     };
     for action in command {
         if let Err(error) = mac.perform(action) {
-            tracing::warn!(%error, ?action, "performing");
+            tracing::warn!(%error, verb = <&str>::from(action), "performing");
         }
     }
 }
