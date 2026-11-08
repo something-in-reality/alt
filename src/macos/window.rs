@@ -2,20 +2,28 @@
 //! and display moves press items of the application's Window menu.
 
 use std::{
+    cell::Cell,
+    ffi::c_void,
     ptr::{self, NonNull},
-    thread,
+    rc::Rc,
     time::Duration,
 };
 
-use objc2_application_services::{AXError, AXUIElement, AXValue, AXValueType};
-use objc2_core_foundation::{CFArray, CFBoolean, CFRetained, CFString, CFType, CGSize};
+use block2::RcBlock;
+use objc2_application_services::{AXError, AXObserver, AXUIElement, AXValue, AXValueType};
+use objc2_core_foundation::{
+    CFAbsoluteTimeGetCurrent, CFArray, CFBoolean, CFRetained, CFRunLoop, CFRunLoopSource,
+    CFRunLoopTimer, CFString, CFType, CGSize, kCFRunLoopCommonModes,
+};
 
 use super::Error;
 use crate::action::{Screen, Side, Size, Tile};
 
-/// Polls for an application's window, which opens after its launch notification: 15 seconds.
-const POLL: Duration = Duration::from_millis(250);
-const ATTEMPTS: u32 = 60;
+/// How long a launched application has to open its main window.
+const OPEN: Duration = Duration::from_secs(15);
+
+/// The Accessibility notifications that follow a window opening.
+const OPENED: [&str; 2] = ["AXWindowCreated", "AXMainWindowChanged"];
 
 /// How long one Accessibility call to an application waits for a reply, in seconds.
 const TIMEOUT: f32 = 0.5;
@@ -30,7 +38,7 @@ pub struct Window {
 }
 
 impl Window {
-    /// The main window of process `pid` once it opens, or without `pid` the focused window.
+    /// The main window of process `pid`, or without `pid` the focused window.
     pub fn new(pid: Option<i32>) -> Result<Self, Error> {
         let (application, window) = match pid {
             Some(pid) => {
@@ -186,15 +194,100 @@ fn element(value: CFRetained<CFType>) -> Result<CFRetained<AXUIElement>, Error> 
         .map_err(|_| Error::Unavailable("an accessibility element"))
 }
 
-/// The main window of `application`, waiting for it to open.
+/// The main window of `application`.
 fn main_window(application: &AXUIElement) -> Result<CFRetained<AXUIElement>, Error> {
-    for _ in 0..ATTEMPTS {
-        if let Ok(main) = attribute(application, "AXMainWindow") {
-            return element(main);
-        }
-        thread::sleep(POLL);
+    element(attribute(application, "AXMainWindow")?)
+}
+
+/// A wait for the main window of one process, on the main run loop.
+struct Wait {
+    application: CFRetained<AXUIElement>,
+    observer: CFRetained<AXObserver>,
+    then: Cell<Option<Box<dyn FnOnce()>>>,
+}
+
+impl Wait {
+    fn source(&self) -> CFRetained<CFRunLoopSource> {
+        unsafe { self.observer.run_loop_source() }
     }
-    Err(Error::Unavailable("the application's window"))
+
+    /// Ends the wait, returning the continuation unless the wait already ended.
+    fn end(&self) -> Option<Box<dyn FnOnce()>> {
+        self.source().invalidate();
+        self.then.take()
+    }
+
+    /// Continues when the application has a main window.
+    fn check(&self) {
+        if main_window(&self.application).is_ok()
+            && let Some(then) = self.end()
+        {
+            then();
+        }
+    }
+}
+
+/// Runs `then` on the main run loop once process `pid` has a main window: at once when it has one,
+/// otherwise when the application reports a window; after `OPEN` without one, it is dropped.
+pub fn when_open(pid: i32, then: impl FnOnce() + 'static) -> Result<(), Error> {
+    let application = unsafe { AXUIElement::new_application(pid) };
+    bound(&application)?;
+    let mut observer = ptr::null_mut();
+    check("AXObserverCreate", unsafe {
+        AXObserver::create(pid, Some(opened), NonNull::from(&mut observer))
+    })?;
+    let observer = NonNull::new(observer)
+        .map(|observer| unsafe { CFRetained::from_raw(observer) })
+        .ok_or(Error::Unavailable("an Accessibility observer"))?;
+    let wait = Rc::new(Wait {
+        application,
+        observer,
+        then: Cell::new(Some(Box::new(then))),
+    });
+    let main = CFRunLoop::main().ok_or(Error::Unavailable("the main run loop"))?;
+    for name in OPENED {
+        check(name, unsafe {
+            wait.observer.add_notification(
+                &wait.application,
+                &CFString::from_str(name),
+                Rc::as_ptr(&wait).cast_mut().cast(),
+            )
+        })?;
+    }
+    let timeout = RcBlock::new({
+        let wait = wait.clone();
+        move |_: *mut CFRunLoopTimer| {
+            if wait.end().is_some() {
+                tracing::warn!(pid, "the application opened no window");
+            }
+        }
+    });
+    let timer = unsafe {
+        CFRunLoopTimer::with_handler(
+            None,
+            CFAbsoluteTimeGetCurrent() + OPEN.as_secs_f64(),
+            0.0,
+            0,
+            0,
+            Some(&timeout),
+        )
+    }
+    .ok_or(Error::Unavailable("a timer"))?;
+    main.add_timer(Some(&timer), unsafe { kCFRunLoopCommonModes });
+    main.add_source(Some(&wait.source()), unsafe { kCFRunLoopCommonModes });
+    wait.check();
+    Ok(())
+}
+
+/// Accessibility callback: the application reported a window; `wait` outlives its source, as the
+/// timer holds the `Wait` until `OPEN` passes.
+unsafe extern "C-unwind" fn opened(
+    _: NonNull<AXObserver>,
+    _: NonNull<AXUIElement>,
+    _: NonNull<CFString>,
+    wait: *mut c_void,
+) {
+    unsafe { &*wait.cast::<Wait>() }.check();
 }
 
 fn children(parent: &AXUIElement) -> Vec<CFRetained<AXUIElement>> {

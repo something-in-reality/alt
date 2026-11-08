@@ -187,6 +187,20 @@ impl Action {
     pub fn repeats(&self) -> bool {
         matches!(self, Self::Press(_) | Self::Type(_) | Self::Resize(_))
     }
+
+    /// Whether the action acts on a window.
+    pub fn needs_window(&self) -> bool {
+        matches!(
+            self,
+            Self::FullScreen
+                | Self::FullScreenTile(_)
+                | Self::Tile(_)
+                | Self::Fill
+                | Self::Center
+                | Self::MoveTo(_)
+                | Self::Resize(_)
+        )
+    }
 }
 
 /// One action or a sequence, run in order; cloning shares the actions.
@@ -198,6 +212,11 @@ impl Command {
     /// Whether a held key repeats the command: every action repeats.
     pub fn repeats(&self) -> bool {
         self.0.iter().all(Action::repeats)
+    }
+
+    /// Whether any action acts on a window.
+    pub fn needs_window(&self) -> bool {
+        self.0.iter().any(Action::needs_window)
     }
 }
 
@@ -319,6 +338,21 @@ mod tests {
         assert!(!repeats(r#"{ open = "org.mozilla.firefox" }"#));
         assert!(Command::from([Action::Press("a".parse().unwrap())]).repeats());
         assert!(!Command::from([Action::Press("a".parse().unwrap()), Action::Fill]).repeats());
+    }
+
+    #[test]
+    fn window_verbs_need_a_window() {
+        let needs = |toml| Command::from(command(toml).unwrap()).needs_window();
+        assert!(needs(r#"["fill", { exec = "true" }]"#));
+        assert!(needs(r#"{ tile = "left" }"#));
+        assert!(needs("{ resize = { width = 1 } }"));
+        assert!(!needs(
+            r#"[{ open = "org.mozilla.firefox" }, { notify = "%H" }]"#
+        ));
+        assert!(!needs(
+            r#"[{ press = "a" }, { type = "a" }, { exec = "true" }]"#
+        ));
+        assert!(!needs(r#"{ force_quit = "org.mozilla.firefox" }"#));
     }
 
     #[test]

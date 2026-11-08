@@ -14,16 +14,20 @@ use jiff::Zoned;
 use objc2::rc::autoreleasepool;
 
 use super::{
-    Error, app, bluetooth, display::Displays, notification, synth::Source, window::Window,
+    Error, app, bluetooth,
+    display::Displays,
+    notification,
+    synth::Source,
+    window::{self, Window},
 };
 use crate::{
     action::{Action, Command},
     event::Effect,
 };
 
-/// Applies effects: commands in order on one serial queue, launched applications' commands on
-/// another, as they wait for their windows, and brightness on a third. A held key's autorepeat
-/// runs only when no command is queued or running.
+/// Applies effects: commands in order on one serial queue, launched applications' commands
+/// concurrently once their windows open, and brightness on a third. A held key's autorepeat runs
+/// only when no command is queued or running.
 pub(super) struct Dispatcher {
     actions: DispatchRetained<DispatchQueue>,
     pending: Arc<AtomicUsize>,
@@ -46,7 +50,7 @@ impl Dispatcher {
         Ok(Self {
             actions: DispatchQueue::new("alt.actions", DispatchQueueAttr::SERIAL),
             pending: Arc::default(),
-            launches: DispatchQueue::new("alt.launches", DispatchQueueAttr::SERIAL),
+            launches: DispatchQueue::new("alt.launches", DispatchQueueAttr::concurrent()),
             displays: Displays::new()?,
         })
     }
@@ -65,9 +69,20 @@ impl Dispatcher {
                     pending.fetch_sub(1, Ordering::AcqRel);
                 });
             }
-            Effect::Launch { pid, command } => self
-                .launches
-                .exec_async(move || autoreleasepool(|_| execute(&command, Some(pid)))),
+            Effect::Launch { pid, command } => {
+                let needs_window = command.needs_window();
+                let launches = self.launches.clone();
+                let run = move || {
+                    launches.exec_async(move || {
+                        autoreleasepool(|_| execute(&command, Some(pid)));
+                    });
+                };
+                if !needs_window {
+                    run();
+                } else if let Err(error) = window::when_open(pid, run) {
+                    tracing::warn!(%error, pid, "waiting for the window");
+                }
+            }
             Effect::SyncBrightness => self.displays.sync(),
         }
     }

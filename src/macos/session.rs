@@ -21,7 +21,7 @@ use dispatch2::DispatchQueue;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{
     NSApplication, NSRunningApplication, NSWorkspaceDidActivateApplicationNotification,
-    NSWorkspaceWillLaunchApplicationNotification,
+    NSWorkspaceDidLaunchApplicationNotification,
 };
 use objc2_application_services::{AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt};
 use objc2_core_foundation::{CFBoolean, CFDictionary};
@@ -73,8 +73,9 @@ pub(super) fn run(
             }
         }
     };
+    // DidLaunch posts once the application finishes launching, when it accepts Accessibility observers.
     let _launch = app::observe(
-        unsafe { NSWorkspaceWillLaunchApplicationNotification },
+        unsafe { NSWorkspaceDidLaunchApplicationNotification },
         launch,
     );
     // The key codes whose KeyDown was dropped, so their KeyUp is dropped too.
