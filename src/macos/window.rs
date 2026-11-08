@@ -17,6 +17,9 @@ use crate::action::{BundleId, Screen, Side, Size, Tile};
 const POLL: Duration = Duration::from_millis(250);
 const ATTEMPTS: u32 = 60;
 
+/// How long one Accessibility call to an application waits for a reply, in seconds.
+const TIMEOUT: f32 = 0.5;
+
 /// The Window menu's items that move the window to a display are titled `Move to <display>`.
 const MOVE_TO: &str = "Move to ";
 
@@ -32,12 +35,15 @@ impl Window {
         let (application, window) = match app {
             Some(app) => {
                 let application = unsafe { AXUIElement::new_application(app::pid(app)?) };
+                bound(&application)?;
                 let window = main_window(&application)?;
                 (application, window)
             }
             None => {
                 let system = unsafe { AXUIElement::new_system_wide() };
+                bound(&system)?;
                 let application = element(attribute(&system, "AXFocusedApplication")?)?;
+                bound(&application)?;
                 let window = element(attribute(&application, "AXFocusedWindow")?)?;
                 (application, window)
             }
@@ -124,6 +130,13 @@ fn check(name: &str, error: AXError) -> Result<(), Error> {
             code: error.0,
         }),
     }
+}
+
+/// Limits the calls to `element`'s application to `TIMEOUT`.
+fn bound(element: &AXUIElement) -> Result<(), Error> {
+    check("AXUIElementSetMessagingTimeout", unsafe {
+        element.set_messaging_timeout(TIMEOUT)
+    })
 }
 
 fn attribute(element: &AXUIElement, name: &str) -> Result<CFRetained<CFType>, Error> {
