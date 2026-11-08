@@ -55,12 +55,14 @@ impl Window {
     }
 
     pub fn resize(&self, change: Size) -> Result<(), Error> {
-        let size: CGSize = get(&self.window, "AXSize", AXValueType::CGSize)?;
-        let size = CGSize {
-            width: size.width + f64::from(change.width),
-            height: size.height + f64::from(change.height),
-        };
-        put(&self.window, "AXSize", AXValueType::CGSize, &size)
+        let current = size(&self.window)?;
+        set_size(
+            &self.window,
+            &CGSize {
+                width: current.width + f64::from(change.width),
+                height: current.height + f64::from(change.height),
+            },
+        )
     }
 
     pub fn full_screen(&self) -> Result<(), Error> {
@@ -156,24 +158,26 @@ fn set(element: &AXUIElement, name: &str, value: &CFType) -> Result<(), Error> {
     })
 }
 
-/// Reads the `AXValue` attribute `name` as a `T` of `kind`.
-fn get<T: Default>(element: &AXUIElement, name: &str, kind: AXValueType) -> Result<T, Error> {
-    let value = attribute(element, name)?
+/// Reads the `AXSize` attribute.
+fn size(element: &AXUIElement) -> Result<CGSize, Error> {
+    let value = attribute(element, "AXSize")?
         .downcast::<AXValue>()
         .map_err(|_| Error::Unavailable("an AXValue"))?;
-    let mut out = T::default();
-    if unsafe { value.value(kind, NonNull::from(&mut out).cast()) } {
-        Ok(out)
+    let mut size = CGSize::default();
+    // SAFETY: the pointer is to a `CGSize`, the type of `AXValueType::CGSize`.
+    if unsafe { value.value(AXValueType::CGSize, NonNull::from(&mut size).cast()) } {
+        Ok(size)
     } else {
         Err(Error::Unavailable("an AXValue"))
     }
 }
 
-/// Sets the `AXValue` attribute `name` to `value`, a `T` of `kind`.
-fn put<T>(element: &AXUIElement, name: &str, kind: AXValueType, value: &T) -> Result<(), Error> {
-    let value = unsafe { AXValue::new(kind, NonNull::from(value).cast()) }
+/// Sets the `AXSize` attribute.
+fn set_size(element: &AXUIElement, size: &CGSize) -> Result<(), Error> {
+    // SAFETY: the pointer is to a `CGSize`, the type of `AXValueType::CGSize`.
+    let value = unsafe { AXValue::new(AXValueType::CGSize, NonNull::from(size).cast()) }
         .ok_or(Error::Unavailable("an AXValue"))?;
-    set(element, name, &value)
+    set(element, "AXSize", &value)
 }
 
 fn element(value: CFRetained<CFType>) -> Result<CFRetained<AXUIElement>, Error> {
