@@ -83,14 +83,18 @@ in
     environment.pathsToLink = [ "/share/alt" ];
 
     # Runs as root, after the activation's `mkAfter` steps (order 1500), such as a secrets module
-    # installing the seed. Trusts the app's signing certificate for code signing, then copies and
-    # signs the app unless the installed executable is this build, by its Mach-O UUID, and validly
-    # signed; the agent restarts onto a changed certificate or app.
+    # installing the seed. Derives the signing identity, which fails the activation when it cannot
+    # be derived, trusts its certificate for code signing, then copies and signs the app unless the
+    # installed executable is this build, by its Mach-O UUID, and validly signed; the agent restarts
+    # onto a changed certificate or app.
     system.activationScripts.postActivation.text = lib.mkOrder 1600 ''
       alt_restart=
+      alt_identity=$(${service.package}/bin/signing-identity ${lib.escapeShellArg service.seed}) || {
+        echo "alt: deriving the signing identity failed" >&2
+        exit 1
+      }
       alt_certificate=$(mktemp)
-      ${service.package}/bin/signing-identity ${lib.escapeShellArg service.seed} \
-        | /usr/bin/sed '/BEGIN PRIVATE KEY/,$d' > "$alt_certificate"
+      printf '%s\n' "$alt_identity" | /usr/bin/sed '/BEGIN PRIVATE KEY/,$d' > "$alt_certificate"
       if ! /usr/bin/security verify-cert -q -p codeSign -c "$alt_certificate" >/dev/null 2>&1; then
         /usr/bin/security add-trusted-cert -d -r trustRoot -p codeSign "$alt_certificate"
         /usr/bin/tccutil reset Accessibility ${service.package.identifier}
@@ -107,10 +111,11 @@ in
         rm -rf ${bundle}
         cp -R "$alt_app" ${bundle}
         chmod -R u+w ${bundle}
-        ${service.package}/bin/signing-identity ${lib.escapeShellArg service.seed} \
+        printf '%s\n' "$alt_identity" \
           | ${lib.getExe pkgs.rcodesign} sign --timestamp-url none --pem-file /dev/stdin ${bundle}
         alt_restart=1
       fi
+      unset alt_identity
 
       if [ -n "$alt_restart" ]; then
         /bin/launchctl kickstart -k "gui/$(/usr/bin/id -u ${user})/${agent}" || true
