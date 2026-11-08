@@ -1,6 +1,6 @@
 [package]
 name = "alt"
-version = "0.18.2"
+version = "0.18.3"
 edition = "2024"
 description = "Keyboard, pointer, window and display behaviour outside the terminal"
 publish = false

@@ -112,7 +112,7 @@ in
         cp -R "$alt_app" ${bundle}
         chmod -R u+w ${bundle}
         printf '%s\n' "$alt_identity" \
-          | ${lib.getExe pkgs.rcodesign} sign --timestamp-url none --pem-file /dev/stdin ${bundle}
+          | ${lib.getExe pkgs.rcodesign} sign --timestamp-url none --pem-file /dev/stdin ${bundle} >/dev/null
         alt_restart=1
       fi
       unset alt_identity
