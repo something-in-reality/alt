@@ -12,7 +12,8 @@ use objc2_foundation::{NSNotification, NSNotificationName, NSObjectProtocol, NSS
 use super::Error;
 use crate::action::BundleId;
 
-fn id(app: &NSRunningApplication) -> Option<BundleId> {
+/// The application's bundle identifier, when it has a valid one.
+pub fn id(app: &NSRunningApplication) -> Option<BundleId> {
     app.bundleIdentifier()
         .and_then(|id| id.to_string().parse().ok())
 }
@@ -59,14 +60,14 @@ pub fn force_quit(app: &BundleId) -> Result<(), Error> {
 /// Calls `f` with the application of each NSWorkspace `notification`, while the observer lives.
 pub fn observe(
     notification: &NSNotificationName,
-    f: impl Fn(BundleId) + 'static,
+    f: impl Fn(&NSRunningApplication) + 'static,
 ) -> Retained<ProtocolObject<dyn NSObjectProtocol>> {
     let block = RcBlock::new(move |notification: NonNull<NSNotification>| {
         let app = unsafe { notification.as_ref() }
             .userInfo()
             .and_then(|info| info.objectForKey(unsafe { NSWorkspaceApplicationKey }))
             .and_then(|app| app.downcast::<NSRunningApplication>().ok());
-        if let Some(app) = app.as_deref().and_then(id) {
+        if let Some(app) = app.as_deref() {
             f(app);
         }
     });

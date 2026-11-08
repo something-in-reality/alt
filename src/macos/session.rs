@@ -19,7 +19,7 @@ use std::{
 use dispatch2::DispatchQueue;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{
-    NSApplication, NSWorkspaceDidActivateApplicationNotification,
+    NSApplication, NSRunningApplication, NSWorkspaceDidActivateApplicationNotification,
     NSWorkspaceWillLaunchApplicationNotification,
 };
 use objc2_application_services::{AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt};
@@ -56,11 +56,15 @@ pub(super) fn run(
     let handle = Rc::new(handle);
     let _activate = app::observe(unsafe { NSWorkspaceDidActivateApplicationNotification }, {
         let apps = apps.clone();
-        move |front| *apps.front.borrow_mut() = Some(front)
+        move |app| *apps.front.borrow_mut() = app::id(app)
     });
     let launch = {
         let (apps, handle) = (apps.clone(), handle.clone());
-        move |app| _ = handle(Event::Launch(app), &apps)
+        move |app: &NSRunningApplication| {
+            if let Some(app) = app::id(app) {
+                _ = handle(Event::Launch(app), &apps);
+            }
+        }
     };
     let _launch = app::observe(
         unsafe { NSWorkspaceWillLaunchApplicationNotification },
