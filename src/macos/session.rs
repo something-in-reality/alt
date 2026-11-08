@@ -3,6 +3,7 @@
 
 use std::{
     cell::RefCell,
+    collections::HashSet,
     convert::Infallible,
     env,
     os::unix::process::CommandExt,
@@ -76,9 +77,12 @@ pub(super) fn run(
         unsafe { NSWorkspaceWillLaunchApplicationNotification },
         launch,
     );
+    // The key codes whose KeyDown was dropped, so their KeyUp is dropped too.
+    let dropped = RefCell::new(HashSet::new());
     let _tap = Tap::new(
         &[
             CGEventType::KeyDown,
+            CGEventType::KeyUp,
             CGEventType::ScrollWheel,
             SYSTEM_DEFINED,
         ],
@@ -86,10 +90,21 @@ pub(super) fn run(
             if synth::is_synthetic(event) {
                 return true;
             }
-            let Some(input) = read(kind, event) else {
-                return true;
-            };
-            match handle(input, &apps) {
+            let keycode =
+                CGEvent::integer_value_field(Some(event), CGEventField::KeyboardEventKeycode);
+            if kind == CGEventType::KeyUp {
+                return !dropped.borrow_mut().remove(&keycode);
+            }
+            let verdict = read(kind, event).map_or(Verdict::Pass, |input| handle(input, &apps));
+            if kind == CGEventType::KeyDown {
+                let mut dropped = dropped.borrow_mut();
+                if verdict == Verdict::Drop {
+                    dropped.insert(keycode);
+                } else {
+                    dropped.remove(&keycode);
+                }
+            }
+            match verdict {
                 Verdict::Pass => true,
                 Verdict::Drop => false,
                 Verdict::Reverse => {
