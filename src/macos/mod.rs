@@ -1,4 +1,4 @@
-//! macOS: [`Session`] is the `Input`, [`Dispatcher`] the `Output`, and [`Mac`] the `Desktop`.
+//! macOS: events from the session, effects on GCD queues and the system APIs.
 
 mod app;
 mod bluetooth;
@@ -16,15 +16,14 @@ mod system_key;
 mod tap;
 mod window;
 
-use std::{convert::Infallible, io, os::unix::process::CommandExt, process};
+use std::{convert::Infallible, io, os::unix::process::CommandExt, process, sync::Arc};
 
+use arc_swap::ArcSwap;
 use objc2_application_services::AXIsProcessTrusted;
 
-pub use self::{
-    desktop::{Dispatcher, Mac},
-    error::Error,
-    session::{Front, Session},
-};
+use self::desktop::Dispatcher;
+pub use self::error::Error;
+use crate::{config::Config, event::Verdict};
 
 /// The app's bundle identifier, which also names its log subsystem.
 pub const IDENTIFIER: &str = env!("BUNDLE_IDENTIFIER");
@@ -50,4 +49,20 @@ pub fn log() -> io::Result<Infallible> {
 /// Whether this process may observe and post input.
 pub fn trusted() -> bool {
     unsafe { AXIsProcessTrusted() }
+}
+
+/// Decides each session event against the live `config`, and applies the effects.
+pub fn run(config: Arc<ArcSwap<Config>>) -> Result<Infallible, Error> {
+    let dispatcher = Dispatcher::new()?;
+    let system = session::system();
+    session::run(move |event, front| {
+        let decision = config.load().decide(event.clone(), &system, front);
+        if decision.verdict != Verdict::Pass || decision.effect.is_some() {
+            tracing::debug!(%event, verdict = ?decision.verdict, effect = ?decision.effect);
+        }
+        if let Some(effect) = decision.effect {
+            dispatcher.apply(effect);
+        }
+        decision.verdict
+    })
 }

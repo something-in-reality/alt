@@ -1,7 +1,7 @@
 //! Actions: a verb written `"fill"`, or `{ tile = "left" }` when the verb takes an argument. A
 //! command is one action or a list of actions that run in order.
 
-use std::{borrow::Cow, io, process, str::FromStr, sync::Arc, thread};
+use std::{borrow::Cow, str::FromStr, sync::Arc};
 
 use derive_more::{AsRef, Display, From};
 use jiff::{Timestamp, Zoned, tz::TimeZone};
@@ -10,7 +10,7 @@ use serde::{Deserialize, Deserializer, de::IntoDeserializer};
 use serde_untagged::UntaggedEnumVisitor;
 use serde_with::DeserializeFromStr;
 
-use crate::{combo::Combo, platform::Desktop};
+use crate::combo::Combo;
 
 /// An action: a verb, or `{ verb = argument }`.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
@@ -182,37 +182,6 @@ impl FromStr for Template {
 }
 
 impl Action {
-    /// Performs the action: `exec` here, every other verb on `desktop`, to which `notify` passes
-    /// its filled template.
-    pub fn perform<D: Desktop>(&self, desktop: &D) -> Result<(), D::Error> {
-        match self {
-            Self::Press(combo) => desktop.press(*combo),
-            Self::Type(text) => desktop.type_text(text),
-            Self::Open(app) => desktop.open(app),
-            Self::ForceQuit(app) => desktop.force_quit(app),
-            Self::FullScreen => desktop.full_screen(),
-            Self::FullScreenTile(side) => desktop.full_screen_tile(*side),
-            Self::Tile(tile) => desktop.tile(*tile),
-            Self::Fill => desktop.fill(),
-            Self::Center => desktop.center(),
-            Self::MoveTo(screen) => desktop.move_to(screen),
-            Self::Resize(size) => desktop.resize(*size),
-            Self::Connect(device) => desktop.connect(device),
-            Self::Disconnect(device) => desktop.disconnect(device),
-            Self::ToggleConnection(device) => desktop.toggle_connection(device),
-            Self::Exec(command) => {
-                let mut child = process::Command::new("/bin/sh")
-                    .args(["-c", command])
-                    .spawn()?;
-                thread::spawn(move || child.wait());
-                Ok(())
-            }
-            Self::Notify(template) => {
-                desktop.notify(&template.format(&Zoned::now()).map_err(io::Error::other)?)
-            }
-        }
-    }
-
     /// Whether a key's autorepeat reruns the action.
     pub fn repeats(&self) -> bool {
         matches!(self, Self::Press(_) | Self::Type(_) | Self::Resize(_))

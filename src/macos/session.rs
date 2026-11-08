@@ -1,5 +1,5 @@
-//! The `Input`: the login session's keys, scrolling and system keys, from an event tap, and
-//! application launches, from NSWorkspace.
+//! The login session's keys, scrolling and system keys, from an event tap, and application
+//! launches, from NSWorkspace.
 
 use std::{
     cell::RefCell,
@@ -36,81 +36,76 @@ use crate::{
     action::BundleId,
     combo::Combo,
     event::{Context, Event, System, Verdict},
-    platform::Input,
 };
-
-/// The login session.
-pub struct Session;
 
 /// The front application, which NSWorkspace's notifications keep current, so a decision reads it
 /// without a call to another process.
-pub struct Front {
+pub(super) struct Front {
     front: RefCell<Option<BundleId>>,
 }
 
-impl Input for Session {
-    type Context = Front;
-    type Error = Error;
-
-    fn system(&self) -> System {
-        let defaults = NSUserDefaults::standardUserDefaults();
-        let key = NSString::from_str("com.apple.swipescrolldirection");
-        System {
-            natural_scrolling: defaults.objectForKey(&key).is_none() || defaults.boolForKey(&key),
-        }
+/// The platform's settings, read once.
+pub(super) fn system() -> System {
+    let defaults = NSUserDefaults::standardUserDefaults();
+    let key = NSString::from_str("com.apple.swipescrolldirection");
+    System {
+        natural_scrolling: defaults.objectForKey(&key).is_none() || defaults.boolForKey(&key),
     }
+}
 
-    fn run(self, handle: impl Fn(Event, &Front) -> Verdict + 'static) -> Result<Infallible, Error> {
-        let mtm = MainThreadMarker::new().expect("the session runs on the main thread");
-        trust()?;
-        let apps = Rc::new(Front {
-            front: RefCell::new(app::front()),
-        });
-        let handle = Rc::new(handle);
-        let _activate = app::observe(unsafe { NSWorkspaceDidActivateApplicationNotification }, {
-            let apps = apps.clone();
-            move |front| *apps.front.borrow_mut() = Some(front)
-        });
-        let launch = {
-            let (apps, handle) = (apps.clone(), handle.clone());
-            move |app| _ = handle(Event::Launch(app), &apps)
-        };
-        app::all().for_each(&launch);
-        let _launch = app::observe(
-            unsafe { NSWorkspaceWillLaunchApplicationNotification },
-            launch,
-        );
-        let _tap = Tap::new(
-            &[
-                CGEventType::KeyDown,
-                CGEventType::ScrollWheel,
-                SYSTEM_DEFINED,
-            ],
-            move |kind, event| {
-                if synth::is_synthetic(event) {
-                    return true;
+/// Runs until the process ends, deciding each event with `handle`.
+pub(super) fn run(
+    handle: impl Fn(Event, &Front) -> Verdict + 'static,
+) -> Result<Infallible, Error> {
+    let mtm = MainThreadMarker::new().expect("the session runs on the main thread");
+    trust()?;
+    let apps = Rc::new(Front {
+        front: RefCell::new(app::front()),
+    });
+    let handle = Rc::new(handle);
+    let _activate = app::observe(unsafe { NSWorkspaceDidActivateApplicationNotification }, {
+        let apps = apps.clone();
+        move |front| *apps.front.borrow_mut() = Some(front)
+    });
+    let launch = {
+        let (apps, handle) = (apps.clone(), handle.clone());
+        move |app| _ = handle(Event::Launch(app), &apps)
+    };
+    app::all().for_each(&launch);
+    let _launch = app::observe(
+        unsafe { NSWorkspaceWillLaunchApplicationNotification },
+        launch,
+    );
+    let _tap = Tap::new(
+        &[
+            CGEventType::KeyDown,
+            CGEventType::ScrollWheel,
+            SYSTEM_DEFINED,
+        ],
+        move |kind, event| {
+            if synth::is_synthetic(event) {
+                return true;
+            }
+            let Some(input) = read(kind, event) else {
+                return true;
+            };
+            match handle(input, &apps) {
+                Verdict::Pass => true,
+                Verdict::Drop => false,
+                Verdict::Reverse => {
+                    scroll::reverse(event);
+                    true
                 }
-                let Some(input) = read(kind, event) else {
-                    return true;
-                };
-                match handle(input, &apps) {
-                    Verdict::Pass => true,
-                    Verdict::Drop => false,
-                    Verdict::Reverse => {
-                        scroll::reverse(event);
-                        true
-                    }
-                }
-            },
-        )
-        .ok_or(Error::Tap)?;
-        watchdog();
-        tracing::info!("running");
-        // AppKit's event loop, which delivers the NSWorkspace notifications and the UserNotifications
-        // authorization prompt.
-        NSApplication::sharedApplication(mtm).run();
-        Err(Error::RunLoopEnded)
-    }
+            }
+        },
+    )
+    .ok_or(Error::Tap)?;
+    watchdog();
+    tracing::info!("running");
+    // AppKit's event loop, which delivers the NSWorkspace notifications and the UserNotifications
+    // authorization prompt.
+    NSApplication::sharedApplication(mtm).run();
+    Err(Error::RunLoopEnded)
 }
 
 impl Context for Front {

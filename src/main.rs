@@ -8,8 +8,8 @@ use std::{
 
 use alt::{
     config::{Config, edit::edit, watch::watch},
-    macos::{self, Dispatcher, Session, status::Status},
-    paths, platform,
+    macos::{self, status::Status},
+    paths,
 };
 use anyhow::Context as _;
 use arc_swap::ArcSwap;
@@ -64,7 +64,7 @@ fn main() -> anyhow::Result<ExitCode> {
             let path = path()?;
             let config = Arc::new(ArcSwap::from_pointee(Config::load(&path)?));
             let _watcher = watch(path, config.clone()).context("watching the configuration")?;
-            platform::run(Session, Dispatcher::new()?, config)?;
+            macos::run(config)?;
         }
         Some(Commands::Edit) => edit(&path()?)?,
         Some(Commands::Schema) => {
