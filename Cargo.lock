@@ -68,6 +68,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "strum",
+ "tempfile",
  "thiserror 2.0.21",
  "toml",
  "tracing",
